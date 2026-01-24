@@ -158,18 +158,14 @@ def reconcile_rise_substring(
         return (row["ts_report_wallet"], row["amount_wallet"])
 
     picked = b_win["txn_id"].apply(_pick).tolist()
-
     ts_list = [x[0] for x in picked]
     amt_list = [x[1] for x in picked]
 
-    # FIX: ensure we always get a Series with datetime64[ns, tz]
+    # Convert to timezone-aware series in report_tz, KEEP tz info (do NOT use .values)
     dt = pd.to_datetime(ts_list, errors="coerce", utc=True)
-    if isinstance(dt, pd.DatetimeIndex):
-        ts_ser = pd.Series(dt).dt.tz_convert(report_tz)
-    else:
-        ts_ser = pd.Series(dt).dt.tz_convert(report_tz)
+    ts_ser = pd.Series(dt, index=b_win.index).dt.tz_convert(report_tz)
 
-    b_win["ts_report_wallet"] = ts_ser.values
+    b_win["ts_report_wallet"] = ts_ser  # keep dtype datetime64[ns, tz]
     b_win["amount_wallet"] = pd.Series(amt_list, index=b_win.index, dtype="float")
 
     merged = b_win
