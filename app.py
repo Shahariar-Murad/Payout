@@ -46,7 +46,7 @@ backend["_auto"] = is_automation(backend.get("Internal Status", pd.Series([""]*l
 
 pm = backend.get("Payment Method", pd.Series([""]*len(backend))).astype(str).str.lower()
 backend_crypto = backend[pm.isin(["usdt","usdc"])].copy()
-backend_rise = backend[pm.eq("risework")].copy()
+backend_rise = backend[pm.isin(["riseworks","risework","rise"])].copy()
 
 crypto_res = reconcile_exact(
     backend_df=backend_crypto,
