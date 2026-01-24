@@ -91,6 +91,27 @@ with tab1:
     b.metric("Rise matched", len(rise_res.matched))
     c.metric("True missing (all)", len(crypto_res.missing_true)+len(rise_res.missing_true))
 
+    st.subheader("Missing transaction details")
+    st.caption("These are Backend payouts that were not found in the selected wallet report (after applying the 15-minute tolerance).")
+    m1, m2 = st.columns(2)
+    with m1:
+        st.markdown("**Crypto missing (Backend present, Wallet missing)**")
+        cm = crypto_res.missing_true.copy()
+        if cm.empty:
+            st.write("No missing rows ✅")
+        else:
+            show_cols = [c for c in ["Disbursed Time","Transaction ID","Disbursement Amount","Payment Method","Plan","Internal Status","Customer Email","Login","Id"] if c in cm.columns]
+            st.dataframe(cm[show_cols + [c for c in ["txn_id","ts_report_backend","amount_backend"] if c in cm.columns]].head(200), use_container_width=True, height=220)
+    with m2:
+        st.markdown("**Rise missing (Backend present, Wallet missing)**")
+        rm = rise_res.missing_true.copy()
+        if rm.empty:
+            st.write("No missing rows ✅")
+        else:
+            show_cols = [c for c in ["Disbursed Time","Payment method ID","Disbursement Amount","Payment Method","Plan","Internal Status","Customer Email","Login","Id"] if c in rm.columns]
+            st.dataframe(rm[show_cols + [c for c in ["txn_id","ts_report_backend","amount_backend"] if c in rm.columns]].head(200), use_container_width=True, height=220)
+
+
     st.subheader("3-hour payout counts (backend) — Rise vs Crypto")
     def counts(df):
         if df.empty:
