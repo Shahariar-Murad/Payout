@@ -148,26 +148,18 @@ with tab1:
     st.dataframe(cs, use_container_width=True, height=260)
 
 with tab2:
-    st.subheader("Breakdown (Matched only)")
+    st.subheader("Breakdown (Matched + Late Sync only)")
     rec = pd.concat([
         crypto_res.matched.assign(channel="Crypto"),
+        crypto_res.late_sync.assign(channel="Crypto"),
         rise_res.matched.assign(channel="Rise"),
+        rise_res.late_sync.assign(channel="Rise"),
     ], ignore_index=True)
+
     if rec.empty:
-        st.info("No matched rows in the selected range.")
+        st.info("No reconciled rows in the selected range.")
         st.stop()
 
-    # KPI totals (Matched only)
-    cfd = rec[rec["_ptype"] == "CFD"]
-    fut = rec[rec["_ptype"] == "Futures"]
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("CFD count", int(len(cfd)))
-    k2.metric("CFD sum", f"{cfd['amount_backend'].sum():,.2f}")
-    k3.metric("Futures count", int(len(fut)))
-    k4.metric("Futures sum", f"{fut['amount_backend'].sum():,.2f}")
-
-    st.markdown("")
-    st.subheader("Breakdown table")
     rec["_ptype"] = plan_category(rec.get("Plan", pd.Series([""]*len(rec))))
     rec["_auto"] = is_automation(rec.get("Internal Status", pd.Series([""]*len(rec))))
 
@@ -184,3 +176,30 @@ with tab2:
     )
 
     st.dataframe(summary.sort_values(["Payout Type","Channel"]), use_container_width=True, height=260)
+
+    # Totals by payout type (CFD vs Futures) - across Rise + Crypto (Matched + Late Sync)
+    totals = (
+        rec.groupby("_ptype")
+        .agg(Count=("txn_id", "count"), Total_Sum=("amount_backend", "sum"))
+        .reset_index()
+        .rename(columns={"_ptype": "Payout Type"})
+    )
+    c1, c2, c3, c4 = st.columns(4)
+    cfd_row = totals[totals["Payout Type"] == "CFD"]
+    fut_row = totals[totals["Payout Type"] == "Futures"]
+
+    c1.metric("CFD count", int(cfd_row["Count"].iloc[0]) if not cfd_row.empty else 0)
+    c2.metric("CFD sum", f"{float(cfd_row['Total_Sum'].iloc[0]) if not cfd_row.empty else 0.0:,.2f}")
+    c3.metric("Futures count", int(fut_row["Count"].iloc[0]) if not fut_row.empty else 0)
+    c4.metric("Futures sum", f"{float(fut_row['Total_Sum'].iloc[0]) if not fut_row.empty else 0.0:,.2f}")
+
+    st.markdown("")
+    st.subheader("CFD vs Futures share (by amount)")
+    pie_df = totals.copy()
+    pie_df = pie_df[pie_df["Total_Sum"] > 0].copy()
+    if pie_df.empty:
+        st.write("No data to chart.")
+    else:
+        fig_pie = px.pie(pie_df, names="Payout Type", values="Total_Sum", hole=0.35)
+        st.plotly_chart(fig_pie, use_container_width=True)
+
