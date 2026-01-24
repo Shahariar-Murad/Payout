@@ -82,7 +82,7 @@ rise_res = reconcile_rise_substring(
     tolerance_minutes=int(tol),
 )
 
-tab1, tab2 = st.tabs(["Payout reconciliation", "Reconciled breakdown"])
+tab1, tab2 = st.tabs(["Payout reconciliation", "Breakdown"])
 
 with tab1:
     st.subheader("Overview")
@@ -148,18 +148,26 @@ with tab1:
     st.dataframe(cs, use_container_width=True, height=260)
 
 with tab2:
-    st.subheader("Reconciled breakdown (Matched + Late Sync only)")
+    st.subheader("Breakdown (Matched only)")
     rec = pd.concat([
         crypto_res.matched.assign(channel="Crypto"),
-        crypto_res.late_sync.assign(channel="Crypto"),
         rise_res.matched.assign(channel="Rise"),
-        rise_res.late_sync.assign(channel="Rise"),
     ], ignore_index=True)
-
     if rec.empty:
-        st.info("No reconciled rows in the selected range.")
+        st.info("No matched rows in the selected range.")
         st.stop()
 
+    # KPI totals (Matched only)
+    cfd = rec[rec["_ptype"] == "CFD"]
+    fut = rec[rec["_ptype"] == "Futures"]
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("CFD count", int(len(cfd)))
+    k2.metric("CFD sum", f"{cfd['amount_backend'].sum():,.2f}")
+    k3.metric("Futures count", int(len(fut)))
+    k4.metric("Futures sum", f"{fut['amount_backend'].sum():,.2f}")
+
+    st.markdown("")
+    st.subheader("Breakdown table")
     rec["_ptype"] = plan_category(rec.get("Plan", pd.Series([""]*len(rec))))
     rec["_auto"] = is_automation(rec.get("Internal Status", pd.Series([""]*len(rec))))
 
