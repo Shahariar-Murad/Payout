@@ -34,7 +34,6 @@ class ReconResult:
     summary_3h: pd.DataFrame
 
 def _build_summary(matched: pd.DataFrame, late_sync: pd.DataFrame, missing_true: pd.DataFrame, report_start: pd.Timestamp, report_end: pd.Timestamp, report_tz: str) -> pd.DataFrame:
-    # summary based on matched amounts; counts for missing/late from their sets
     if matched.empty:
         summary = pd.DataFrame(columns=["bucket_3h","matched_count","backend_total","wallet_total","diff_total","abs_diff_total"])
     else:
@@ -49,12 +48,12 @@ def _build_summary(matched: pd.DataFrame, late_sync: pd.DataFrame, missing_true:
             )
             .reset_index()
         )
+
     miss = missing_true.groupby("bucket_3h").size().reset_index(name="missing_count") if not missing_true.empty else pd.DataFrame(columns=["bucket_3h","missing_count"])
     late = late_sync.groupby("bucket_3h").size().reset_index(name="late_sync_count") if not late_sync.empty else pd.DataFrame(columns=["bucket_3h","late_sync_count"])
 
     summary = summary.merge(miss, on="bucket_3h", how="outer").merge(late, on="bucket_3h", how="outer")
 
-    # ensure all buckets exist
     all_buckets = pd.date_range(start=report_start, end=report_end, freq="3H", inclusive="left").tz_convert(report_tz)
     all_df = pd.DataFrame({"bucket_3h": all_buckets})
     summary = all_df.merge(summary, on="bucket_3h", how="left").sort_values("bucket_3h")
@@ -123,11 +122,11 @@ def reconcile_rise_substring(
     rise_df: pd.DataFrame,
     backend_ts_col: str,
     backend_tz: str,
-    backend_id_col: str,          # Payment method ID
+    backend_id_col: str,
     backend_amount_col: str,
     rise_ts_col: str,
     rise_tz: str,
-    rise_desc_col: str,           # Description contains id
+    rise_desc_col: str,
     rise_amount_col: str,
     report_tz: str,
     report_start: pd.Timestamp,
@@ -151,17 +150,26 @@ def reconcile_rise_substring(
 
     b_win = b[(b["ts_report_backend"] >= report_start) & (b["ts_report_backend"] < report_end)].copy()
 
-    # For each backend id, find first rise row whose description contains that id
-    def _pick_row(txn_id: str):
+    def _pick(txn_id: str):
         m = r[r["_desc"].str.contains(txn_id, na=False)]
         if len(m) == 0:
             return (pd.NaT, np.nan)
         row = m.iloc[0]
         return (row["ts_report_wallet"], row["amount_wallet"])
 
-    picked = b_win["txn_id"].apply(_pick_row)
-    b_win["ts_report_wallet"] = picked.apply(lambda x: x[0])
-    b_win["amount_wallet"] = picked.apply(lambda x: x[1])
+    picked = b_win["txn_id"].apply(_pick)
+
+    ts_list = []
+    amt_list = []
+    for item in picked.tolist():
+        ts_list.append(item[0] if isinstance(item[0], pd.Timestamp) else pd.NaT)
+        amt_list.append(item[1])
+
+    # Force datetime dtype (tz-aware) reliably
+    ts_ser = pd.to_datetime(ts_list, errors="coerce", utc=True).dt.tz_convert(report_tz)
+
+    b_win["ts_report_wallet"] = ts_ser
+    b_win["amount_wallet"] = pd.Series(amt_list, index=b_win.index, dtype="float")
 
     merged = b_win
     merged["delay_min"] = (merged["ts_report_backend"] - merged["ts_report_wallet"]).dt.total_seconds() / 60
