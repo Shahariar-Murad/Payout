@@ -41,7 +41,6 @@ backend = pd.read_csv(backend_file)
 crypto = pd.read_csv(crypto_file)
 rise = pd.read_csv(rise_file)
 
-# classify backend
 backend["_ptype"] = plan_category(backend.get("Plan", pd.Series([""]*len(backend))))
 backend["_auto"] = is_automation(backend.get("Internal Status", pd.Series([""]*len(backend))))
 
@@ -49,7 +48,6 @@ pm = backend.get("Payment Method", pd.Series([""]*len(backend))).astype(str).str
 backend_crypto = backend[pm.isin(["usdt","usdc"])].copy()
 backend_rise = backend[pm.eq("risework")].copy()
 
-# Crypto reconciliation (exact id match)
 crypto_res = reconcile_exact(
     backend_df=backend_crypto,
     wallet_df=crypto,
@@ -67,7 +65,6 @@ crypto_res = reconcile_exact(
     tolerance_minutes=int(tol),
 )
 
-# Rise reconciliation (substring match)
 rise_res = reconcile_rise_substring(
     backend_df=backend_rise,
     rise_df=rise,
@@ -95,7 +92,6 @@ with tab1:
     c.metric("True missing (all)", len(crypto_res.missing_true)+len(rise_res.missing_true))
 
     st.subheader("3-hour payout counts (backend) — Rise vs Crypto")
-    # counts from backend by 3h
     def counts(df):
         if df.empty:
             return pd.DataFrame(columns=["bucket_3h","count"])
@@ -132,7 +128,6 @@ with tab1:
 
 with tab2:
     st.subheader("Reconciled breakdown (Matched + Late Sync only)")
-    # reconciled only
     rec = pd.concat([
         crypto_res.matched.assign(channel="Crypto"),
         crypto_res.late_sync.assign(channel="Crypto"),
@@ -147,10 +142,6 @@ with tab2:
     rec["_ptype"] = plan_category(rec.get("Plan", pd.Series([""]*len(rec))))
     rec["_auto"] = is_automation(rec.get("Internal Status", pd.Series([""]*len(rec))))
 
-    def auto_sum(g):
-        idx = g.index
-        return float(g.loc[rec.loc[idx,"_auto"], "amount_backend"].sum())
-
     summary = (
         rec.groupby(["_ptype","channel"])
         .agg(
@@ -164,9 +155,3 @@ with tab2:
     )
 
     st.dataframe(summary.sort_values(["Payout Type","Channel"]), use_container_width=True, height=260)
-
-    # Quick totals cards
-    t1,t2,t3 = st.columns(3)
-    t1.metric("Total reconciled amount", f"{rec['amount_backend'].sum():.2f}")
-    t2.metric("Futures reconciled amount", f"{rec.loc[rec['Payout Type']=='Futures','amount_backend'].sum() if 'Payout Type' in rec.columns else rec.loc[rec['_ptype']=='Futures','amount_backend'].sum():.2f}")
-    t3.metric("Automation amount", f"{rec.loc[rec['_auto'],'amount_backend'].sum():.2f}")
