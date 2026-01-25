@@ -178,28 +178,72 @@ with tab1:
         st.session_state["__sel_times"] = sel_times
 if run_rise:
     st.subheader("Rise 3-hour summary")
+
     rs = rise_res.summary_3h.copy()
     rs["Date"] = rs["bucket_3h"].dt.strftime("%Y-%m-%d")
     rs["Time Range"] = rs["bucket_3h"].apply(format_range)
-    rs = rs[["Date","Time Range","matched_count","late_sync_count","missing_count","backend_total","wallet_total","diff_total","abs_diff_total"]]
+
+    rs = rs[[
+        "Date",
+        "Time Range",
+        "matched_count",
+        "late_sync_count",
+        "missing_count",
+        "backend_total",
+        "wallet_total",
+        "diff_total",
+        "abs_diff_total",
+    ]]
+
     sel_dates = st.session_state.get("__sel_dates")
     sel_times = st.session_state.get("__sel_times")
+
     if sel_dates is not None and sel_times is not None:
         rs = rs[(rs["Date"].isin(sel_dates)) & (rs["Time Range"].isin(sel_times))]
-    st.markdown('<div class="share-card"><div class="share-title">Rise 3-hour summary</div><div class="share-sub">Filtered view — ready for screenshot.</div></div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="share-card">'
+        '<div class="share-title">Rise 3-hour summary</div>'
+        '<div class="share-sub">Filtered view — ready for screenshot.</div>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
     st.dataframe(rs, use_container_width=True, height=260)
 
     if run_crypto:
     st.subheader("Crypto 3-hour summary")
+
     cs = crypto_res.summary_3h.copy()
     cs["Date"] = cs["bucket_3h"].dt.strftime("%Y-%m-%d")
     cs["Time Range"] = cs["bucket_3h"].apply(format_range)
-    cs = cs[["Date","Time Range","matched_count","late_sync_count","missing_count","backend_total","wallet_total","diff_total","abs_diff_total"]]
+
+    cs = cs[[
+        "Date",
+        "Time Range",
+        "matched_count",
+        "late_sync_count",
+        "missing_count",
+        "backend_total",
+        "wallet_total",
+        "diff_total",
+        "abs_diff_total",
+    ]]
+
     sel_dates = st.session_state.get("__sel_dates")
     sel_times = st.session_state.get("__sel_times")
+
     if sel_dates is not None and sel_times is not None:
         cs = cs[(cs["Date"].isin(sel_dates)) & (cs["Time Range"].isin(sel_times))]
-    st.markdown('<div class="share-card"><div class="share-title">Crypto 3-hour summary</div><div class="share-sub">Filtered view — ready for screenshot.</div></div>', unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="share-card">'
+        '<div class="share-title">Crypto 3-hour summary</div>'
+        '<div class="share-sub">Filtered view — ready for screenshot.</div>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
     st.dataframe(cs, use_container_width=True, height=260)
 
 with tab2:
