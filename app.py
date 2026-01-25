@@ -167,15 +167,17 @@ with tab1:
 
         dates = sorted(chart_df["Date"].unique().tolist())
         times = sorted(chart_df["Time Range"].unique().tolist())
-        sel_dates = st.multiselect("Filter date (optional)", options=dates, default=dates)
-        sel_times = st.multiselect("Filter 3-hour slot (optional)", options=times, default=times)
+        # Time filter (optional) – leave empty to show all
+        sel_times = st.multiselect("Filter 3-hour slot (optional)", options=times, default=[])
+, options=times, default=times)
 
-        fdf = chart_df[(chart_df["Date"].isin(sel_dates)) & (chart_df["Time Range"].isin(sel_times))].copy()
+        fdf = chart_df.copy()
+        if sel_times:
+            fdf = fdf[fdf["Time Range"].isin(sel_times)].copy()
         fig = px.bar(fdf, x="Time Range", y="Count", color="Channel", barmode="group")
         st.plotly_chart(fig, use_container_width=True)
 
-        st.session_state["__sel_dates"] = sel_dates
-        st.session_state["__sel_times"] = sel_times
+                st.session_state["__sel_times"] = sel_times
     # --- 3-hour summaries (filtered) ---
     if run_rise:
         st.subheader("Rise 3-hour summary")
@@ -183,12 +185,30 @@ with tab1:
         rs["Date"] = rs["bucket_3h"].dt.strftime("%Y-%m-%d")
         rs["Time Range"] = rs["bucket_3h"].apply(format_range)
         rs = rs[["Date","Time Range","matched_count","late_sync_count","missing_count","backend_total","wallet_total","diff_total","abs_diff_total"]]
-        sel_dates = st.session_state.get("__sel_dates")
         sel_times = st.session_state.get("__sel_times")
-        if sel_dates is not None and sel_times is not None:
-            rs = rs[(rs["Date"].isin(sel_dates)) & (rs["Time Range"].isin(sel_times))]
+    if sel_times:
+        rs = rs[rs["Time Range"].isin(sel_times)]
         st.markdown('<div class="share-card"><div class="share-title">Rise 3-hour summary</div><div class="share-sub">Filtered view — ready for screenshot.</div></div>', unsafe_allow_html=True)
         st.dataframe(rs, use_container_width=True, height=260)
+
+    st.markdown('<div class="share-card"><div class="share-title">Details (filtered)</div><div class="share-sub">Matched + Late Sync + Missing for the selected 3-hour slot(s).</div></div>', unsafe_allow_html=True)
+
+    def _apply_time_filter(df):
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+        if "bucket_3h" in df.columns:
+            df["Time Range"] = df["bucket_3h"].apply(format_range)
+        sel_times = st.session_state.get("__sel_times")
+        if sel_times and "Time Range" in df.columns:
+            df = df[df["Time Range"].isin(sel_times)]
+        return df
+
+    x_df = _apply_time_filter(rise_res.missing_true) if rise_res is not None else pd.DataFrame()
+
+    st.write("**Missing (detail)**")
+    st.dataframe(x_df, use_container_width=True, height=220)
+    st.download_button("Download missing CSV", data=x_df.to_csv(index=False).encode("utf-8"), file_name="rise_missing.csv", mime="text/csv")
 
     if run_crypto:
         st.subheader("Crypto 3-hour summary")
@@ -196,12 +216,32 @@ with tab1:
         cs["Date"] = cs["bucket_3h"].dt.strftime("%Y-%m-%d")
         cs["Time Range"] = cs["bucket_3h"].apply(format_range)
         cs = cs[["Date","Time Range","matched_count","late_sync_count","missing_count","backend_total","wallet_total","diff_total","abs_diff_total"]]
-        sel_dates = st.session_state.get("__sel_dates")
         sel_times = st.session_state.get("__sel_times")
-        if sel_dates is not None and sel_times is not None:
-            cs = cs[(cs["Date"].isin(sel_dates)) & (cs["Time Range"].isin(sel_times))]
+    if sel_times:
+        cs = cs[cs["Time Range"].isin(sel_times)]
         st.markdown('<div class="share-card"><div class="share-title">Crypto 3-hour summary</div><div class="share-sub">Filtered view — ready for screenshot.</div></div>', unsafe_allow_html=True)
         st.dataframe(cs, use_container_width=True, height=260)
+
+    st.markdown('<div class="share-card"><div class="share-title">Details (filtered)</div><div class="share-sub">Matched + Late Sync + Missing for the selected 3-hour slot(s).</div></div>', unsafe_allow_html=True)
+
+    def _apply_time_filter(df):
+        if df is None or df.empty:
+            return df
+        df = df.copy()
+        if "bucket_3h" in df.columns:
+            df["Time Range"] = df["bucket_3h"].apply(format_range)
+        sel_times = st.session_state.get("__sel_times")
+        if sel_times and "Time Range" in df.columns:
+            df = df[df["Time Range"].isin(sel_times)]
+        return df
+
+    m_df = _apply_time_filter(crypto_res.matched) if crypto_res is not None else pd.DataFrame()
+    l_df = _apply_time_filter(crypto_res.late_sync) if crypto_res is not None else pd.DataFrame()
+    x_df = _apply_time_filter(crypto_res.missing_true) if crypto_res is not None else pd.DataFrame()
+
+    st.write("**Missing (detail)**")
+    st.dataframe(x_df, use_container_width=True, height=220)
+    st.download_button("Download missing CSV", data=x_df.to_csv(index=False).encode("utf-8"), file_name="crypto_missing.csv", mime="text/csv")
 with tab2:
     st.subheader("Breakdown (Matched + Late Sync only)")
     parts = []
