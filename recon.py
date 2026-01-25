@@ -94,7 +94,7 @@ def reconcile_exact(
     w["ts_report_wallet"] = w["ts_utc"].dt.tz_convert(report_tz)
 
     b["amount_backend"] = _safe_float(b[backend_amount_col])
-    w["amount_wallet"] = _safe_float(w[wallet_amount_col])
+    w["amount_wallet"] = _safe_float(w[wallet_amount_col]).abs()
 
     b_win = b[(b["ts_report_backend"] >= report_start) & (b["ts_report_backend"] < report_end)].copy()
 
@@ -133,6 +133,10 @@ def reconcile_rise_substring(
     report_end: pd.Timestamp,
     tolerance_minutes: int = 15,
 ) -> ReconResult:
+    \"\"\"Rise matching:
+    - Backend Payment method ID appears inside Rise Description
+    - If multiple Rise rows match the same id, pick the closest timestamp to backend.
+    \"\"\"
     b = backend_df.copy()
     r = rise_df.copy()
 
@@ -146,26 +150,29 @@ def reconcile_rise_substring(
     r["ts_report_wallet"] = r["ts_utc"].dt.tz_convert(report_tz)
 
     b["amount_backend"] = _safe_float(b[backend_amount_col])
-    r["amount_wallet"] = _safe_float(r[rise_amount_col])
+    r["amount_wallet_raw"] = _safe_float(r[rise_amount_col]).abs()
 
     b_win = b[(b["ts_report_backend"] >= report_start) & (b["ts_report_backend"] < report_end)].copy()
+    r_win = r[(r["ts_report_wallet"] >= report_start - pd.Timedelta(hours=6)) & (r["ts_report_wallet"] < report_end + pd.Timedelta(hours=6))].copy()
 
-    def _pick(txn_id: str):
-        m = r[r["_desc"].str.contains(txn_id, na=False)]
-        if len(m) == 0:
-            return (pd.NaT, np.nan)
-        row = m.iloc[0]
-        return (row["ts_report_wallet"], row["amount_wallet"])
+    def _pick_best(txn_id: str, backend_ts: pd.Timestamp):
+        m = r_win[r_win["_desc"].str.contains(txn_id, na=False)]
+        if len(m) == 0 or pd.isna(backend_ts):
+            return (pd.NaT, float("nan"))
+        deltas = (m["ts_report_wallet"] - backend_ts).abs()
+        idx = deltas.idxmin()
+        row = m.loc[idx]
+        return (row["ts_report_wallet"], row["amount_wallet_raw"])
 
-    picked = b_win["txn_id"].apply(_pick).tolist()
+    picked = [
+        _pick_best(tid, ts)
+        for tid, ts in zip(b_win["txn_id"].tolist(), b_win["ts_report_backend"].tolist())
+    ]
     ts_list = [x[0] for x in picked]
     amt_list = [x[1] for x in picked]
 
-    # Convert to timezone-aware series in report_tz, KEEP tz info (do NOT use .values)
     dt = pd.to_datetime(ts_list, errors="coerce", utc=True)
-    ts_ser = pd.Series(dt, index=b_win.index).dt.tz_convert(report_tz)
-
-    b_win["ts_report_wallet"] = ts_ser  # keep dtype datetime64[ns, tz]
+    b_win["ts_report_wallet"] = pd.Series(dt, index=b_win.index).dt.tz_convert(report_tz)
     b_win["amount_wallet"] = pd.Series(amt_list, index=b_win.index, dtype="float")
 
     merged = b_win
