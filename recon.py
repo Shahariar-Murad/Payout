@@ -133,10 +133,10 @@ def reconcile_rise_substring(
     report_end: pd.Timestamp,
     tolerance_minutes: int = 15,
 ) -> ReconResult:
-    \"\"\"Rise matching:
+    """Rise matching:
     - Backend Payment method ID appears inside Rise Description
     - If multiple Rise rows match the same id, pick the closest timestamp to backend.
-    \"\"\"
+    """
     b = backend_df.copy()
     r = rise_df.copy()
 
