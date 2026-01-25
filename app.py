@@ -186,6 +186,52 @@ with tab1:
         st.markdown('<div class="share-card"><div class="share-title">Rise 3-hour summary</div><div class="share-sub">Filtered view — ready for screenshot.</div></div>', unsafe_allow_html=True)
         st.dataframe(rs, use_container_width=True, height=260)
 
+        # --- Detail transactions (filtered by selected 3-hour slot) ---
+        def _detail_block(res, label):
+            sel_times = st.session_state.get("__sel_times") or []
+            parts = []
+            if res is None:
+                return
+            if hasattr(res, "matched") and res.matched is not None and not res.matched.empty:
+                parts.append(res.matched.assign(_status="Matched"))
+            if hasattr(res, "late_sync") and res.late_sync is not None and not res.late_sync.empty:
+                parts.append(res.late_sync.assign(_status="Late Sync"))
+            if hasattr(res, "missing_true") and res.missing_true is not None and not res.missing_true.empty:
+                parts.append(res.missing_true.assign(_status="Missing"))
+
+            if not parts:
+                st.info("No detail rows.")
+                return
+
+            det = pd.concat(parts, ignore_index=True)
+            # Build Time Range from the same bucket_3h used in summary
+            if "bucket_3h" in det.columns:
+                det["Time Range"] = det["bucket_3h"].apply(format_range)
+                det["Date"] = det["bucket_3h"].dt.strftime("%Y-%m-%d")
+            elif "ts_report_backend" in det.columns:
+                det["_b"] = det["ts_report_backend"].dt.floor("3H")
+                det["Time Range"] = det["_b"].apply(format_range)
+                det["Date"] = det["_b"].dt.strftime("%Y-%m-%d")
+                det.drop(columns=["_b"], inplace=True, errors="ignore")
+
+            if sel_times and "Time Range" in det.columns:
+                det = det[det["Time Range"].isin(sel_times)]
+
+            st.markdown(f'<div class="share-card"><div class="share-title">{label} transaction details</div><div class="share-sub">This table follows the selected 3-hour slot filter. If no slot is selected, it shows the whole day.</div></div>', unsafe_allow_html=True)
+
+            # Show Missing first for quick action
+            miss = det[det["_status"]=="Missing"].copy()
+            st.write("**Missing (detail)**")
+            st.dataframe(miss, use_container_width=True, height=220)
+            st.download_button(f"Download {label} missing CSV", data=miss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_missing.csv", mime="text/csv")
+
+            with st.expander("Show matched + late sync details"):
+                nonmiss = det[det["_status"]!="Missing"].copy()
+                st.dataframe(nonmiss, use_container_width=True, height=260)
+                st.download_button(f"Download {label} matched+late CSV", data=nonmiss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_matched_late.csv", mime="text/csv")
+
+        _detail_block(rise_res, "Rise")
+
     if run_crypto:
         st.subheader("Crypto 3-hour summary")
         cs = crypto_res.summary_3h.copy()
@@ -197,6 +243,52 @@ with tab1:
             cs = cs[cs["Time Range"].isin(sel_times)]
         st.markdown('<div class="share-card"><div class="share-title">Crypto 3-hour summary</div><div class="share-sub">Filtered view — ready for screenshot.</div></div>', unsafe_allow_html=True)
         st.dataframe(cs, use_container_width=True, height=260)
+
+        # --- Detail transactions (filtered by selected 3-hour slot) ---
+        def _detail_block(res, label):
+            sel_times = st.session_state.get("__sel_times") or []
+            parts = []
+            if res is None:
+                return
+            if hasattr(res, "matched") and res.matched is not None and not res.matched.empty:
+                parts.append(res.matched.assign(_status="Matched"))
+            if hasattr(res, "late_sync") and res.late_sync is not None and not res.late_sync.empty:
+                parts.append(res.late_sync.assign(_status="Late Sync"))
+            if hasattr(res, "missing_true") and res.missing_true is not None and not res.missing_true.empty:
+                parts.append(res.missing_true.assign(_status="Missing"))
+
+            if not parts:
+                st.info("No detail rows.")
+                return
+
+            det = pd.concat(parts, ignore_index=True)
+            # Build Time Range from the same bucket_3h used in summary
+            if "bucket_3h" in det.columns:
+                det["Time Range"] = det["bucket_3h"].apply(format_range)
+                det["Date"] = det["bucket_3h"].dt.strftime("%Y-%m-%d")
+            elif "ts_report_backend" in det.columns:
+                det["_b"] = det["ts_report_backend"].dt.floor("3H")
+                det["Time Range"] = det["_b"].apply(format_range)
+                det["Date"] = det["_b"].dt.strftime("%Y-%m-%d")
+                det.drop(columns=["_b"], inplace=True, errors="ignore")
+
+            if sel_times and "Time Range" in det.columns:
+                det = det[det["Time Range"].isin(sel_times)]
+
+            st.markdown(f'<div class="share-card"><div class="share-title">{label} transaction details</div><div class="share-sub">This table follows the selected 3-hour slot filter. If no slot is selected, it shows the whole day.</div></div>', unsafe_allow_html=True)
+
+            # Show Missing first for quick action
+            miss = det[det["_status"]=="Missing"].copy()
+            st.write("**Missing (detail)**")
+            st.dataframe(miss, use_container_width=True, height=220)
+            st.download_button(f"Download {label} missing CSV", data=miss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_missing.csv", mime="text/csv")
+
+            with st.expander("Show matched + late sync details"):
+                nonmiss = det[det["_status"]!="Missing"].copy()
+                st.dataframe(nonmiss, use_container_width=True, height=260)
+                st.download_button(f"Download {label} matched+late CSV", data=nonmiss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_matched_late.csv", mime="text/csv")
+
+        _detail_block(crypto_res, "Crypto")
 with tab2:
     st.subheader("Breakdown (Matched + Late Sync only)")
     parts = []
