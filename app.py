@@ -382,18 +382,45 @@ with tab3:
         amt = pd.to_numeric(df.loc[mask, amount_col], errors="coerce").fillna(0.0)
         return float(np.nansum(np.abs(amt)))
 
-    def _sum_payout_wallet_amount(res) -> float:
+    def _sum_payout_wallet_amount(res, report_start, report_end) -> float:
+        """Sum *wallet-side* payout amount within the selected report date range.
+
+        Why filter on wallet timestamp?
+        Reconciliation is primarily driven by backend timestamps. A wallet transaction can
+        land slightly outside the selected date range (e.g., late sync / timezone shift).
+        For the *Disbursement totals* tab we want:
+            All (wallet in range) >= Payout (wallet in range matched to backend)
+        so we must restrict payout amounts to wallet rows whose wallet timestamp is within
+        the same [report_start, report_end) window (in report_tz).
+        """
         if res is None:
             return 0.0
-        parts = []
+
+        frames = []
         for name in ("matched", "late_sync"):
             d = getattr(res, name, None)
-            if isinstance(d, pd.DataFrame) and len(d) > 0 and "amount_wallet" in d.columns:
-                parts.append(d["amount_wallet"])
-        if not parts:
+            if isinstance(d, pd.DataFrame) and len(d) > 0:
+                frames.append(d)
+        if not frames:
             return 0.0
-        s = pd.concat(parts, ignore_index=True)
-        return float(np.nansum(np.abs(pd.to_numeric(s, errors="coerce").fillna(0.0))))
+
+        df = pd.concat(frames, ignore_index=True)
+        if "amount_wallet" not in df.columns:
+            return 0.0
+
+        # Filter by wallet timestamp (already converted to report_tz in recon.py)
+        if "ts_report_wallet" in df.columns and report_start is not None and report_end is not None:
+            wts = pd.to_datetime(df["ts_report_wallet"], errors="coerce")
+            # If tz-aware, comparisons work; if tz-naive, localize to report_tz
+            if hasattr(wts.dt, "tz") and wts.dt.tz is None:
+                try:
+                    wts = wts.dt.tz_localize(report_tz)
+                except Exception:
+                    pass
+            df = df[(wts >= report_start) & (wts < report_end)].copy()
+
+        amt = pd.to_numeric(df["amount_wallet"], errors="coerce").fillna(0.0)
+        return float(np.nansum(np.abs(amt)))
 
     # Wallet-report columns (these are the columns used by reconciliation)
     CRYPTO_TS_COL, CRYPTO_AMT_COL = "Created", "Amount"
@@ -403,8 +430,8 @@ with tab3:
     crypto_all = _sum_amount_in_range(crypto if run_crypto else None, CRYPTO_TS_COL, CRYPTO_AMT_COL, crypto_tz)
     rise_all = _sum_amount_in_range(rise if run_rise else None, RISE_TS_COL, RISE_AMT_COL, rise_tz)
 
-    crypto_payout = _sum_payout_wallet_amount(crypto_res) if run_crypto else 0.0
-    rise_payout = _sum_payout_wallet_amount(rise_res) if run_rise else 0.0
+    crypto_payout = _sum_payout_wallet_amount(crypto_res, report_start, report_end) if run_crypto else 0.0
+    rise_payout = _sum_payout_wallet_amount(rise_res, report_start, report_end) if run_rise else 0.0
 
     crypto_other = max(0.0, crypto_all - crypto_payout)
     rise_other = max(0.0, rise_all - rise_payout)
