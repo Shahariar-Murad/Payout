@@ -102,7 +102,7 @@ if run_rise:
     tolerance_minutes=int(tol),
 )
 
-tab1, tab2 = st.tabs(["Payout reconciliation", "Breakdown"])
+tab1, tab2, tab3 = st.tabs(["Payout reconciliation", "Breakdown", "Disbursement totals"])
 
 with tab1:
     st.subheader("Overview")
@@ -345,3 +345,72 @@ with tab2:
     else:
         fig_pie = px.pie(pie_df, names="Payout Type", values="Total_Sum", hole=0.35)
         st.plotly_chart(fig_pie, use_container_width=True)
+
+
+with tab3:
+    st.header("Disbursement totals (All vs Payout vs Others)")
+    st.caption("All = total amount in the wallet report within the selected date range. Payout = amount that matches backend payouts (Matched + Late Sync). Others = All − Payout.")
+
+    def _wallet_window_total(df, ts_col, amount_col, source_tz_name, report_tz, start_dt, end_dt):
+        """Sum of amounts inside [start_dt, end_dt) when viewed in report_tz.
+
+        source_tz_name is the timezone of the raw file timestamps when they are naive.
+        """
+        if df is None or len(df) == 0:
+            return 0.0
+        ts = pd.to_datetime(df[ts_col], errors='coerce')
+        # If timestamps are naive, localize them to the file's timezone.
+        if getattr(ts.dt, 'tz', None) is None:
+            ts = ts.dt.tz_localize(source_tz_name)
+        else:
+            ts = ts.dt.tz_convert(source_tz_name)
+        ts = ts.dt.tz_convert(report_tz)
+        mask = (ts >= start_dt) & (ts < end_dt)
+        amt = pd.to_numeric(df.loc[mask, amount_col], errors='coerce').fillna(0.0)
+        return float(amt.sum())
+
+    rows = []
+
+    # Crypto totals
+    if run_crypto and crypto_df is not None and len(crypto_df) > 0:
+        all_crypto = _wallet_window_total(crypto_df, wallet_ts_col, wallet_amount_col, wallet_tz, report_tz, start, end)
+        payout_crypto = 0.0
+        if crypto_res is not None and crypto_res.matched is not None and len(crypto_res.matched) > 0:
+            payout_crypto += float(pd.to_numeric(crypto_res.matched.get('amount_wallet', 0), errors='coerce').fillna(0.0).sum())
+        if crypto_res is not None and crypto_res.late_sync is not None and len(crypto_res.late_sync) > 0:
+            payout_crypto += float(pd.to_numeric(crypto_res.late_sync.get('amount_wallet', 0), errors='coerce').fillna(0.0).sum())
+        others_crypto = float(all_crypto - payout_crypto)
+        rows.append({"Channel": "Crypto", "All_Amount": all_crypto, "Payout_Amount": payout_crypto, "Others_Disbursement": others_crypto})
+
+    # Rise totals
+    if run_rise and rise_df is not None and len(rise_df) > 0:
+        all_rise = _wallet_window_total(rise_df, rise_ts_col, rise_amount_col, rise_tz, report_tz, start, end)
+        payout_rise = 0.0
+        if rise_res is not None and rise_res.matched is not None and len(rise_res.matched) > 0:
+            payout_rise += float(pd.to_numeric(rise_res.matched.get('amount_wallet', 0), errors='coerce').fillna(0.0).sum())
+        if rise_res is not None and rise_res.late_sync is not None and len(rise_res.late_sync) > 0:
+            payout_rise += float(pd.to_numeric(rise_res.late_sync.get('amount_wallet', 0), errors='coerce').fillna(0.0).sum())
+        others_rise = float(all_rise - payout_rise)
+        rows.append({"Channel": "Rise", "All_Amount": all_rise, "Payout_Amount": payout_rise, "Others_Disbursement": others_rise})
+
+    if len(rows) == 0:
+        st.info("Upload at least one wallet report (Crypto and/or Rise) to see totals.")
+    else:
+        totals_df = pd.DataFrame(rows)
+        # Pretty formatting
+        show_df = totals_df.copy()
+        for c in ["All_Amount", "Payout_Amount", "Others_Disbursement"]:
+            show_df[c] = show_df[c].map(lambda x: round(float(x), 4))
+        st.dataframe(show_df, use_container_width=True, hide_index=True)
+
+        # Quick KPIs
+        cols = st.columns(len(rows))
+        for i, r in enumerate(rows):
+            cols[i].metric(f"{r['Channel']} • All", f"{r['All_Amount']:.2f}")
+            cols[i].metric(f"{r['Channel']} • Payout", f"{r['Payout_Amount']:.2f}")
+            cols[i].metric(f"{r['Channel']} • Others", f"{r['Others_Disbursement']:.2f}")
+
+        # Stacked bar chart
+        chart_df = totals_df.melt(id_vars=["Channel"], value_vars=["Payout_Amount", "Others_Disbursement"], var_name="Type", value_name="Amount")
+        fig = px.bar(chart_df, x="Channel", y="Amount", color="Type", barmode="stack", title="All disbursements split (Payout vs Others)")
+        st.plotly_chart(fig, use_container_width=True)
