@@ -41,7 +41,7 @@ def _build_summary(matched: pd.DataFrame, late_sync: pd.DataFrame, missing_true:
         summary = (
             matched.groupby("bucket_3h")
             .agg(
-                matched_count=("txn_id","count"),
+                matched_count=("amount_backend","size"),
                 backend_total=("amount_backend","sum"),
                 wallet_total=("amount_wallet","sum"),
                 diff_total=("amount_diff","sum"),
