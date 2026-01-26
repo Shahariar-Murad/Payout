@@ -4,7 +4,7 @@ import streamlit as st
 from datetime import datetime, date, time, timedelta
 import plotly.express as px
 
-from recon import reconcile_exact, reconcile_rise_email, plan_category, is_automation
+from recon import reconcile_exact, reconcile_rise_substring, reconcile_rise_email, plan_category, is_automation
 
 st.set_page_config(page_title="Payout Recon Platform", layout="wide")
 st.title("Payout Reconciliation Platform")
@@ -71,7 +71,7 @@ if run_crypto:
         wallet_df=crypto,
         backend_ts_col="Disbursed Time",
         backend_tz=backend_tz,
-        backend_email_col="Transaction ID",
+        backend_id_col="Transaction ID",
         backend_amount_col="Disbursement Amount",
         wallet_ts_col="Created",
         wallet_tz=crypto_tz,
@@ -90,7 +90,7 @@ if run_rise:
     rise_df=rise,
     backend_ts_col="Disbursed Time",
     backend_tz=backend_tz,
-    backend_email_col="Payment method email",
+    backend_email_col="Payment method Email",
     backend_amount_col="Disbursement Amount",
     rise_ts_col="Date",
     rise_tz=rise_tz,
@@ -102,7 +102,7 @@ if run_rise:
     tolerance_minutes=int(tol),
 )
 
-tab1, tab2, tab3 = st.tabs(["Payout reconciliation", "Breakdown", "Report totals"])
+tab1, tab2 = st.tabs(["Payout reconciliation", "Breakdown"])
 
 with tab1:
     st.subheader("Overview")
@@ -344,55 +344,3 @@ with tab2:
     else:
         fig_pie = px.pie(pie_df, names="Payout Type", values="Total_Sum", hole=0.35)
         st.plotly_chart(fig_pie, use_container_width=True)
-
-
-with tab3:
-    st.subheader("Report totals (Wallet reports)")
-    st.caption("Totals from wallet reports, split into payouts (matched to backend) and other-purpose (wallet-only).")
-
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        st.markdown("### Crypto wallet")
-        if run_crypto and crypto is not None and crypto_res is not None:
-            cw = crypto.copy()
-            cw["_ts"] = pd.to_datetime(cw["Created"], errors="coerce", utc=True).dt.tz_convert(report_tz)
-            cw = cw[(cw["_ts"] >= report_start) & (cw["_ts"] < report_end)].copy()
-            cw["tracking_id_norm"] = cw["Tracking ID"].astype(str).str.strip().str.upper()
-
-            matched_ids = set(pd.concat([crypto_res.matched["txn_id"], crypto_res.late_sync["txn_id"]]).dropna().unique().tolist())
-            cw_payout = cw[cw["tracking_id_norm"].isin(matched_ids)].copy()
-            cw_other = cw[~cw["tracking_id_norm"].isin(matched_ids)].copy()
-
-            st.metric("Total in report", f"{pd.to_numeric(cw['Amount'], errors='coerce').abs().sum():,.2f}")
-            st.metric("Payout (matched)", f"{pd.to_numeric(cw_payout['Amount'], errors='coerce').abs().sum():,.2f}")
-            st.metric("Other purpose (wallet-only)", f"{pd.to_numeric(cw_other['Amount'], errors='coerce').abs().sum():,.2f}")
-
-            st.write("Wallet-only (top 200)")
-            st.dataframe(cw_other.head(200), use_container_width=True, height=220)
-            st.download_button("Download crypto wallet-only CSV", data=cw_other.to_csv(index=False).encode("utf-8"), file_name="crypto_wallet_only.csv", mime="text/csv")
-        else:
-            st.info("Upload Backend + Crypto report to see crypto totals.")
-
-    with col_b:
-        st.markdown("### Rise wallet")
-        if run_rise and rise is not None and rise_res is not None:
-            rw = rise.copy()
-            # Rise report is GMT+6 in file (as per your rule)
-            rw["_ts"] = pd.to_datetime(rw["Date"], errors="coerce").dt.tz_localize(rise_tz).dt.tz_convert(report_tz)
-            rw = rw[(rw["_ts"] >= report_start) & (rw["_ts"] < report_end)].copy()
-            rw["rise_email"] = rw["Description"].astype(str).str.extract(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})', flags=re.IGNORECASE, expand=False).str.lower()
-
-            matched_emails = set(pd.concat([rise_res.matched["match_key"], rise_res.late_sync["match_key"]]).dropna().unique().tolist())
-            rw_payout = rw[rw["rise_email"].isin(matched_emails)].copy()
-            rw_other = rw[~rw["rise_email"].isin(matched_emails)].copy()
-
-            st.metric("Total in report", f"{pd.to_numeric(rw['Amount'], errors='coerce').abs().sum():,.2f}")
-            st.metric("Payout (matched)", f"{pd.to_numeric(rw_payout['Amount'], errors='coerce').abs().sum():,.2f}")
-            st.metric("Other purpose (wallet-only)", f"{pd.to_numeric(rw_other['Amount'], errors='coerce').abs().sum():,.2f}")
-
-            st.write("Wallet-only (top 200)")
-            st.dataframe(rw_other.head(200), use_container_width=True, height=220)
-            st.download_button("Download rise wallet-only CSV", data=rw_other.to_csv(index=False).encode("utf-8"), file_name="rise_wallet_only.csv", mime="text/csv")
-        else:
-            st.info("Upload Backend + Rise report to see rise totals.")
