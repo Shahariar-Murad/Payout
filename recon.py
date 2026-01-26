@@ -1,29 +1,9 @@
+
 from __future__ import annotations
-import re
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
-
-def _norm_col(name: str) -> str:
-    return re.sub(r"\s+", " ", str(name).strip().lower())
-
-def _resolve_col(df: pd.DataFrame, requested: str, fallbacks: list[str] | None = None) -> str:
-    """Return actual column name in df matching requested (case/space-insensitive).
-    If not found, try fallbacks. Raise KeyError if none found.
-    """
-    cols = list(df.columns)
-    norm_map = {_norm_col(c): c for c in cols}
-    cand = []
-    if requested:
-        cand.append(requested)
-    if fallbacks:
-        cand.extend(fallbacks)
-    for c in cand:
-        key = _norm_col(c)
-        if key in norm_map:
-            return norm_map[key]
-    raise KeyError(f"Column not found. Tried: {cand}. Available: {cols}")
-
+import re
 
 def _to_utc(series: pd.Series, source_tz: str) -> pd.Series:
     s = pd.to_datetime(series, errors="coerce", utc=False)
@@ -108,14 +88,12 @@ def reconcile_exact(
     b["txn_id"] = _clean_id(b[backend_id_col])
     w["txn_id"] = _clean_id(w[wallet_id_col])
 
-    backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
     b["ts_utc"] = _to_utc(b[backend_ts_col], backend_tz)
     w["ts_utc"] = _to_utc(w[wallet_ts_col], wallet_tz)
 
     b["ts_report_backend"] = b["ts_utc"].dt.tz_convert(report_tz)
     w["ts_report_wallet"] = w["ts_utc"].dt.tz_convert(report_tz)
 
-    backend_amount_col = _resolve_col(b, backend_amount_col, fallbacks=["Disbursement Amount","Disbursement amount","Amount","amount"])
     b["amount_backend"] = _safe_float(b[backend_amount_col])
     w["amount_wallet"] = _safe_float(w[wallet_amount_col]).abs()
 
@@ -166,17 +144,13 @@ def reconcile_rise_substring(
     b["txn_id"] = _clean_id(b[backend_id_col])
     r["_desc"] = r[rise_desc_col].astype(str).str.upper()
 
-    backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
     b["ts_utc"] = _to_utc(b[backend_ts_col], backend_tz)
-    rise_ts_col = _resolve_col(r, rise_ts_col, fallbacks=["Date","Timestamp","Created","created","date"])
     r["ts_utc"] = _to_utc(r[rise_ts_col], rise_tz)
 
     b["ts_report_backend"] = b["ts_utc"].dt.tz_convert(report_tz)
     r["ts_report_wallet"] = r["ts_utc"].dt.tz_convert(report_tz)
 
-    backend_amount_col = _resolve_col(b, backend_amount_col, fallbacks=["Disbursement Amount","Disbursement amount","Amount","amount"])
     b["amount_backend"] = _safe_float(b[backend_amount_col])
-    rise_amount_col = _resolve_col(r, rise_amount_col, fallbacks=["Amount","amount","Net Amount","net amount"])
     r["amount_wallet_raw"] = _safe_float(r[rise_amount_col]).abs()
 
     b_win = b[(b["ts_report_backend"] >= report_start) & (b["ts_report_backend"] < report_end)].copy()
@@ -216,11 +190,20 @@ def reconcile_rise_substring(
     summary_3h = _build_summary(matched, late_sync, missing_true, report_start, report_end, report_tz)
     return ReconResult(matched, late_sync, missing_true, summary_3h)
 
-import re  # ensure available for email regex
+def _extract_email_from_rise_desc(desc: pd.Series) -> pd.Series:
+    """Extract receiver email from Rise Description.
+    We try to capture the email after the phrase 'paid to'. If not found, fall back to the first email anywhere.
+    """
+    s = desc.astype(str).str.lower()
 
-def _extract_rise_paid_to_email(text: pd.Series) -> pd.Series:
-    s = text.astype(str)
-    return s.str.extract(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})', flags=re.IGNORECASE, expand=False).str.lower()
+    # try after 'paid to'
+    after_paid = s.str.extract(r"paid to\s+([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})", expand=False)
+
+    # fallback: any email
+    any_email = s.str.extract(r"([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})", expand=False)
+
+    out = after_paid.fillna(any_email).fillna("")
+    return out.str.strip()
 
 def reconcile_rise_email(
     backend_df: pd.DataFrame,
@@ -238,33 +221,42 @@ def reconcile_rise_email(
     report_end: pd.Timestamp,
     tolerance_minutes: int = 15,
 ) -> ReconResult:
-    """Rise matching by email:
-    - Backend payment method email matches Rise email extracted from Rise Description.
-    - If multiple Rise rows match the same email, pick the closest timestamp to backend.
+    """Reconcile Backend (Rise payouts) to Rise report by email.
+
+    Match key:
+      backend_df[backend_email_col]  <->  email extracted from rise_df[rise_desc_col]
+
+    We do NOT use Rise ID for matching.
+    If multiple Rise rows match an email, we pick the closest Rise timestamp to each backend row.
     """
     b = backend_df.copy()
     r = rise_df.copy()
 
     b["match_key"] = b[backend_email_col].astype(str).str.strip().str.lower()
-    r["match_key"] = _extract_rise_paid_to_email(r[rise_desc_col])
+    r["match_key"] = _extract_email_from_rise_desc(r[rise_desc_col]).astype(str).str.strip().str.lower()
 
-    backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
+    # timestamps
     b["ts_utc"] = _to_utc(b[backend_ts_col], backend_tz)
-    rise_ts_col = _resolve_col(r, rise_ts_col, fallbacks=["Date","Timestamp","Created","created","date"])
     r["ts_utc"] = _to_utc(r[rise_ts_col], rise_tz)
 
     b["ts_report_backend"] = b["ts_utc"].dt.tz_convert(report_tz)
     r["ts_report_wallet"] = r["ts_utc"].dt.tz_convert(report_tz)
 
-    backend_amount_col = _resolve_col(b, backend_amount_col, fallbacks=["Disbursement Amount","Disbursement amount","Amount","amount"])
+    # amounts
     b["amount_backend"] = _safe_float(b[backend_amount_col])
-    rise_amount_col = _resolve_col(r, rise_amount_col, fallbacks=["Amount","amount","Net Amount","net amount"])
     r["amount_wallet_raw"] = _safe_float(r[rise_amount_col]).abs()
 
+    # backend window
     b_win = b[(b["ts_report_backend"] >= report_start) & (b["ts_report_backend"] < report_end)].copy()
+
+    # rise window (wider to account for boundary / sync)
     r_win = r[(r["ts_report_wallet"] >= report_start - pd.Timedelta(hours=6)) & (r["ts_report_wallet"] < report_end + pd.Timedelta(hours=6))].copy()
 
-    rise_groups = {k: g for k, g in r_win.dropna(subset=["match_key"]).groupby("match_key")}
+    # Drop empty keys to avoid empty-empty matches
+    b_win = b_win[b_win["match_key"].ne("")].copy()
+    r_win = r_win[r_win["match_key"].ne("")].copy()
+
+    rise_groups = {k: g for k, g in r_win.groupby("match_key")}
 
     def _pick_best(key: str, backend_ts: pd.Timestamp):
         g = rise_groups.get(key)
@@ -275,13 +267,11 @@ def reconcile_rise_email(
         row = g.loc[idx]
         return (row["ts_report_wallet"], row["amount_wallet_raw"])
 
-    picked = [
-        _pick_best(k, ts)
-        for k, ts in zip(b_win["match_key"].tolist(), b_win["ts_report_backend"].tolist())
-    ]
+    picked = [_pick_best(k, ts) for k, ts in zip(b_win["match_key"].tolist(), b_win["ts_report_backend"].tolist())]
     ts_list = [x[0] for x in picked]
     amt_list = [x[1] for x in picked]
 
+    # align types
     dt = pd.to_datetime(ts_list, errors="coerce", utc=True)
     b_win["ts_report_wallet"] = pd.Series(dt, index=b_win.index).dt.tz_convert(report_tz)
     b_win["amount_wallet"] = pd.Series(amt_list, index=b_win.index, dtype="float")
@@ -299,17 +289,3 @@ def reconcile_rise_email(
 
     summary_3h = _build_summary(matched, late_sync, missing_true, report_start, report_end, report_tz)
     return ReconResult(matched, late_sync, missing_true, summary_3h)
-
-
-def _extract_rise_paid_to_email(desc: pd.Series) -> pd.Series:
-    s = desc.astype(str)
-
-    # 1) Try: email between "paid to" and "rise id"
-    pat_between = r"paid\s*to[:\s-]*\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\s*.*?rise\s*id"
-    out = s.str.extract(pat_between, flags=re.IGNORECASE, expand=False)
-
-    # 2) Fallback: any email in description (if format differs)
-    pat_any = r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})"
-    out = out.fillna(s.str.extract(pat_any, flags=re.IGNORECASE, expand=False))
-
-    return out.str.lower()
