@@ -1,7 +1,8 @@
+import re
 def _norm_col(name: str) -> str:
     return re.sub(r"\s+", " ", str(name).strip().lower())
 
-def _resolve_col(df: pd.DataFrame, requested: str, fallbacks: list[str] | None = None) -> str:
+def _resolve_col(df: "pd.DataFrame", requested: str, fallbacks=None) -> str:
     """Return actual column name in df matching requested (case/space-insensitive).
     If not found, try fallbacks. Raise KeyError if none found.
     """
@@ -22,6 +23,27 @@ def _resolve_col(df: pd.DataFrame, requested: str, fallbacks: list[str] | None =
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
+
+
+def _norm_col(name: str) -> str:
+    return re.sub(r"\s+", " ", str(name).strip().lower())
+
+def _resolve_col(df: pd.DataFrame, requested: str, fallbacks=None) -> str:
+    """Return actual column name in df matching requested (case/space-insensitive).
+    If not found, try fallbacks list. Raise KeyError if none found.
+    """
+    cols = list(df.columns)
+    norm_map = {_norm_col(c): c for c in cols}
+    candidates = []
+    if requested:
+        candidates.append(requested)
+    if fallbacks:
+        candidates.extend(list(fallbacks))
+    for c in candidates:
+        key = _norm_col(c)
+        if key in norm_map:
+            return norm_map[key]
+    raise KeyError(f"Column not found. Tried: {candidates}. Available: {cols}")
 
 def _to_utc(series: pd.Series, source_tz: str) -> pd.Series:
     s = pd.to_datetime(series, errors="coerce", utc=False)
