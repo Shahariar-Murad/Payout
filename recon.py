@@ -1,3 +1,23 @@
+def _norm_col(name: str) -> str:
+    return re.sub(r"\s+", " ", str(name).strip().lower())
+
+def _resolve_col(df: pd.DataFrame, requested: str, fallbacks: list[str] | None = None) -> str:
+    """Return actual column name in df matching requested (case/space-insensitive).
+    If not found, try fallbacks. Raise KeyError if none found.
+    """
+    cols = list(df.columns)
+    norm_map = {_norm_col(c): c for c in cols}
+    cand = []
+    if requested:
+        cand.append(requested)
+    if fallbacks:
+        cand.extend(fallbacks)
+    for c in cand:
+        key = _norm_col(c)
+        if key in norm_map:
+            return norm_map[key]
+    raise KeyError(f"Column not found. Tried: {cand}. Available: {cols}")
+
 
 from __future__ import annotations
 from dataclasses import dataclass
@@ -87,12 +107,14 @@ def reconcile_exact(
     b["txn_id"] = _clean_id(b[backend_id_col])
     w["txn_id"] = _clean_id(w[wallet_id_col])
 
+    backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
     b["ts_utc"] = _to_utc(b[backend_ts_col], backend_tz)
     w["ts_utc"] = _to_utc(w[wallet_ts_col], wallet_tz)
 
     b["ts_report_backend"] = b["ts_utc"].dt.tz_convert(report_tz)
     w["ts_report_wallet"] = w["ts_utc"].dt.tz_convert(report_tz)
 
+    backend_amount_col = _resolve_col(b, backend_amount_col, fallbacks=["Disbursement Amount","Disbursement amount","Amount","amount"])
     b["amount_backend"] = _safe_float(b[backend_amount_col])
     w["amount_wallet"] = _safe_float(w[wallet_amount_col]).abs()
 
@@ -143,13 +165,17 @@ def reconcile_rise_substring(
     b["txn_id"] = _clean_id(b[backend_id_col])
     r["_desc"] = r[rise_desc_col].astype(str).str.upper()
 
+    backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
     b["ts_utc"] = _to_utc(b[backend_ts_col], backend_tz)
+    rise_ts_col = _resolve_col(r, rise_ts_col, fallbacks=["Date","Timestamp","Created","created","date"])
     r["ts_utc"] = _to_utc(r[rise_ts_col], rise_tz)
 
     b["ts_report_backend"] = b["ts_utc"].dt.tz_convert(report_tz)
     r["ts_report_wallet"] = r["ts_utc"].dt.tz_convert(report_tz)
 
+    backend_amount_col = _resolve_col(b, backend_amount_col, fallbacks=["Disbursement Amount","Disbursement amount","Amount","amount"])
     b["amount_backend"] = _safe_float(b[backend_amount_col])
+    rise_amount_col = _resolve_col(r, rise_amount_col, fallbacks=["Amount","amount","Net Amount","net amount"])
     r["amount_wallet_raw"] = _safe_float(r[rise_amount_col]).abs()
 
     b_win = b[(b["ts_report_backend"] >= report_start) & (b["ts_report_backend"] < report_end)].copy()
@@ -221,13 +247,17 @@ def reconcile_rise_email(
     b["match_key"] = b[backend_email_col].astype(str).str.strip().str.lower()
     r["match_key"] = _extract_email(r[rise_desc_col])
 
+    backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
     b["ts_utc"] = _to_utc(b[backend_ts_col], backend_tz)
+    rise_ts_col = _resolve_col(r, rise_ts_col, fallbacks=["Date","Timestamp","Created","created","date"])
     r["ts_utc"] = _to_utc(r[rise_ts_col], rise_tz)
 
     b["ts_report_backend"] = b["ts_utc"].dt.tz_convert(report_tz)
     r["ts_report_wallet"] = r["ts_utc"].dt.tz_convert(report_tz)
 
+    backend_amount_col = _resolve_col(b, backend_amount_col, fallbacks=["Disbursement Amount","Disbursement amount","Amount","amount"])
     b["amount_backend"] = _safe_float(b[backend_amount_col])
+    rise_amount_col = _resolve_col(r, rise_amount_col, fallbacks=["Amount","amount","Net Amount","net amount"])
     r["amount_wallet_raw"] = _safe_float(r[rise_amount_col]).abs()
 
     b_win = b[(b["ts_report_backend"] >= report_start) & (b["ts_report_backend"] < report_end)].copy()
