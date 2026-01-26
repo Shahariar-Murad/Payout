@@ -308,7 +308,8 @@ with tab2:
     summary = (
         rec.groupby(["_ptype","channel"])
         .agg(
-            Count=("txn_id","count"),
+            # txn_id may be null for Rise rows (email-based matching), so use row-count.
+            Count=("amount_backend","size"),
             Total_Sum=("amount_backend","sum"),
             Automation_Count=("_auto","sum"),
             Automation_Sum=("amount_backend", lambda s: float(s[rec.loc[s.index,"_auto"]].sum())),
@@ -322,7 +323,7 @@ with tab2:
     # Totals by payout type (CFD vs Futures) - across Rise + Crypto (Matched + Late Sync)
     totals = (
         rec.groupby("_ptype")
-        .agg(Count=("txn_id", "count"), Total_Sum=("amount_backend", "sum"))
+        .agg(Count=("amount_backend", "size"), Total_Sum=("amount_backend", "sum"))
         .reset_index()
         .rename(columns={"_ptype": "Payout Type"})
     )
