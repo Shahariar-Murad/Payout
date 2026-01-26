@@ -19,7 +19,6 @@ def _resolve_col(df: pd.DataFrame, requested: str, fallbacks: list[str] | None =
     raise KeyError(f"Column not found. Tried: {cand}. Available: {cols}")
 
 
-from __future__ import annotations
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
