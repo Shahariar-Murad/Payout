@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 import pandas as pd
+import re
 import numpy as np
 
 def _to_utc(series: pd.Series, source_tz: str) -> pd.Series:
@@ -133,51 +134,123 @@ def reconcile_rise_substring(
     report_end: pd.Timestamp,
     tolerance_minutes: int = 15,
 ) -> ReconResult:
-    """Rise matching:
-    - Backend Payment method ID appears inside Rise Description
-    - If multiple Rise rows match the same id, pick the closest timestamp to backend.
     """
+    Rise matching (UPDATED):
+    - Match Backend **Payment method Email** (passed via backend_id_col) to Rise email extracted from Rise Description.
+    - Amount tolerance: ±$0.10 (compared in cents; avoids float issues).
+    - One-to-one matching: a Rise row cannot be matched more than once.
+    - If multiple candidates exist for same email, pick smallest amount diff; tie-break by closest timestamp.
+    """
+    amount_tolerance_usd = 0.10
+    tol_cents = int(round(amount_tolerance_usd * 100))
+
     b = backend_df.copy()
     r = rise_df.copy()
 
-    b["txn_id"] = _clean_id(b[backend_id_col])
-    r["_desc"] = r[rise_desc_col].astype(str).str.upper()
+    def _norm_email(x) -> str:
+        return str(x).strip().lower()
 
+    def _extract_email(desc: str):
+        s = str(desc).lower()
+        m1 = re.search(r"paid to\s+([a-z0-9._%+-]+@[a-z0-9.-]+)", s)
+        if m1:
+            return m1.group(1)
+        m2 = re.search(r"([a-z0-9._%+-]+@[a-z0-9.-]+)", s)
+        return m2.group(1) if m2 else None
+
+    def _to_cents(series_like) -> pd.Series:
+        s = _safe_float(series_like)
+        return (s * 100).round().astype("Int64")
+
+    # Keys
+    b["match_key"] = b[backend_id_col].apply(_norm_email)
+    r["match_key"] = r[rise_desc_col].apply(_extract_email)
+    r["match_key"] = r["match_key"].apply(lambda x: _norm_email(x) if (x is not None and pd.notna(x)) else None)
+
+    # Timestamps
     b["ts_utc"] = _to_utc(b[backend_ts_col], backend_tz)
     r["ts_utc"] = _to_utc(r[rise_ts_col], rise_tz)
 
     b["ts_report_backend"] = b["ts_utc"].dt.tz_convert(report_tz)
     r["ts_report_wallet"] = r["ts_utc"].dt.tz_convert(report_tz)
 
+    # Amounts (Rise amount can be negative; use abs)
     b["amount_backend"] = _safe_float(b[backend_amount_col])
-    r["amount_wallet_raw"] = _safe_float(r[rise_amount_col]).abs()
+    r["amount_wallet"] = _safe_float(r[rise_amount_col]).abs()
 
+    b["backend_cents"] = _to_cents(b["amount_backend"])
+    r["wallet_cents"] = _to_cents(r["amount_wallet"])
+
+    # Window: backend defines the report window; rise allows extra +/- 6h to accommodate timezone/report differences
     b_win = b[(b["ts_report_backend"] >= report_start) & (b["ts_report_backend"] < report_end)].copy()
     r_win = r[(r["ts_report_wallet"] >= report_start - pd.Timedelta(hours=6)) & (r["ts_report_wallet"] < report_end + pd.Timedelta(hours=6))].copy()
 
-    def _pick_best(txn_id: str, backend_ts: pd.Timestamp):
-        m = r_win[r_win["_desc"].str.contains(txn_id, na=False)]
-        if len(m) == 0 or pd.isna(backend_ts):
-            return (pd.NaT, float("nan"))
-        deltas = (m["ts_report_wallet"] - backend_ts).abs()
-        idx = deltas.idxmin()
-        row = m.loc[idx]
-        return (row["ts_report_wallet"], row["amount_wallet_raw"])
+    # Build index of rise rows by email within window
+    rise_by_email = {}
+    for idx, key in r_win["match_key"].items():
+        if key:
+            rise_by_email.setdefault(key, []).append(idx)
 
-    picked = [
-        _pick_best(tid, ts)
-        for tid, ts in zip(b_win["txn_id"].tolist(), b_win["ts_report_backend"].tolist())
-    ]
-    ts_list = [x[0] for x in picked]
-    amt_list = [x[1] for x in picked]
+    used_rise = set()
+    picked_ts = []
+    picked_amt = []
+    picked_delay = []
+    picked_diff = []
+    picked_idx = []
 
-    dt = pd.to_datetime(ts_list, errors="coerce", utc=True)
-    b_win["ts_report_wallet"] = pd.Series(dt, index=b_win.index).dt.tz_convert(report_tz)
-    b_win["amount_wallet"] = pd.Series(amt_list, index=b_win.index, dtype="float")
+    for _, brow in b_win.iterrows():
+        email = brow["match_key"]
+        b_cents = brow["backend_cents"]
+        b_ts = brow["ts_report_backend"]
+
+        best = None  # (diff_cents, time_diff_sec, ridx)
+        for ridx in rise_by_email.get(email, []):
+            if ridx in used_rise:
+                continue
+            w_cents = r_win.at[ridx, "wallet_cents"]
+            if pd.isna(b_cents) or pd.isna(w_cents):
+                continue
+            diff_cents = abs(int(b_cents) - int(w_cents))
+            if diff_cents > tol_cents:
+                continue
+            w_ts = r_win.at[ridx, "ts_report_wallet"]
+            if pd.isna(w_ts):
+                continue
+            tdiff = abs((b_ts - w_ts).total_seconds())
+            score = (diff_cents, tdiff, ridx)
+            if best is None or score < best:
+                best = score
+
+        if best is None:
+            picked_ts.append(pd.NaT)
+            picked_amt.append(float("nan"))
+            picked_delay.append(float("nan"))
+            picked_diff.append(float("nan"))
+            picked_idx.append(pd.NA)
+            continue
+
+        diff_cents, _, ridx = best
+        used_rise.add(ridx)
+
+        w_ts = r_win.at[ridx, "ts_report_wallet"]
+        w_amt = float(r_win.at[ridx, "amount_wallet"])
+
+        delay_min = (b_ts - w_ts).total_seconds() / 60.0
+        amt_diff = float(brow["amount_backend"]) - w_amt
+
+        picked_ts.append(w_ts)
+        picked_amt.append(w_amt)
+        picked_delay.append(delay_min)
+        picked_diff.append(amt_diff)
+        picked_idx.append(ridx)
+
+    b_win["ts_report_wallet"] = pd.Series(picked_ts, index=b_win.index)
+    b_win["amount_wallet"] = pd.Series(picked_amt, index=b_win.index, dtype="float")
+    b_win["delay_min"] = pd.Series(picked_delay, index=b_win.index, dtype="float")
+    b_win["amount_diff"] = pd.Series(picked_diff, index=b_win.index, dtype="float")
+    b_win["_rise_index"] = pd.Series(picked_idx, index=b_win.index)
 
     merged = b_win
-    merged["delay_min"] = (merged["ts_report_backend"] - merged["ts_report_wallet"]).dt.total_seconds() / 60
-    merged["amount_diff"] = merged["amount_backend"] - merged["amount_wallet"]
 
     matched = merged[(merged["ts_report_wallet"].notna()) & (merged["delay_min"].abs() <= tolerance_minutes)].copy()
     late_sync = merged[(merged["ts_report_wallet"].notna()) & (merged["delay_min"].abs() > tolerance_minutes)].copy()
