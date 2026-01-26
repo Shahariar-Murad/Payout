@@ -90,7 +90,7 @@ if run_rise:
     rise_df=rise,
     backend_ts_col="Disbursed Time",
     backend_tz=backend_tz,
-    backend_id_col="Payment method ID",
+    backend_id_col="Payment method Email" ,
     backend_amount_col="Disbursement Amount",
     rise_ts_col="Date",
     rise_tz=rise_tz,
