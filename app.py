@@ -358,10 +358,17 @@ with tab3:
     )
 
     def _parse_local(df: pd.DataFrame, ts_col: str, src_tz: str) -> pd.Series:
-        """Parse a naive timestamp column as src_tz, convert to report timezone."""
+        """Parse timestamps and return them converted to the report timezone.
+
+        - If the source column is **naive**, we interpret it as `src_tz` (tz_localize).
+        - If it's already **tz-aware** (e.g., strings like `2026-01-23 10:38:46+00:00`),
+          we keep that timezone and just convert to the report timezone.
+        """
         s = pd.to_datetime(df[ts_col], errors="coerce")
-        # localize naive -> source timezone
-        s = s.dt.tz_localize(src_tz, nonexistent="shift_forward", ambiguous="NaT")
+        if getattr(s.dt, "tz", None) is None:
+            # localize naive -> source timezone
+            s = s.dt.tz_localize(src_tz, nonexistent="shift_forward", ambiguous="NaT")
+        # convert -> report timezone
         return s.dt.tz_convert(report_tz)
 
     def _sum_amount_in_range(df: pd.DataFrame, ts_col: str, amount_col: str, src_tz: str) -> float:
