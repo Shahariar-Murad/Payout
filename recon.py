@@ -1,8 +1,7 @@
-import re
 def _norm_col(name: str) -> str:
     return re.sub(r"\s+", " ", str(name).strip().lower())
 
-def _resolve_col(df: "pd.DataFrame", requested: str, fallbacks=None) -> str:
+def _resolve_col(df: pd.DataFrame, requested: str, fallbacks: list[str] | None = None) -> str:
     """Return actual column name in df matching requested (case/space-insensitive).
     If not found, try fallbacks. Raise KeyError if none found.
     """
@@ -23,27 +22,6 @@ def _resolve_col(df: "pd.DataFrame", requested: str, fallbacks=None) -> str:
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
-
-
-def _norm_col(name: str) -> str:
-    return re.sub(r"\s+", " ", str(name).strip().lower())
-
-def _resolve_col(df: pd.DataFrame, requested: str, fallbacks=None) -> str:
-    """Return actual column name in df matching requested (case/space-insensitive).
-    If not found, try fallbacks list. Raise KeyError if none found.
-    """
-    cols = list(df.columns)
-    norm_map = {_norm_col(c): c for c in cols}
-    candidates = []
-    if requested:
-        candidates.append(requested)
-    if fallbacks:
-        candidates.extend(list(fallbacks))
-    for c in candidates:
-        key = _norm_col(c)
-        if key in norm_map:
-            return norm_map[key]
-    raise KeyError(f"Column not found. Tried: {candidates}. Available: {cols}")
 
 def _to_utc(series: pd.Series, source_tz: str) -> pd.Series:
     s = pd.to_datetime(series, errors="coerce", utc=False)
@@ -125,9 +103,7 @@ def reconcile_exact(
     b = backend_df.copy()
     w = wallet_df.copy()
 
-    backend_id_col = _resolve_col(b, backend_id_col, fallbacks=["Transaction ID","Tracking ID","TrackingID","tracking id","tracking_id","Txn ID","TXN ID","Reference","Reference ID"])
     b["txn_id"] = _clean_id(b[backend_id_col])
-    wallet_id_col = _resolve_col(w, wallet_id_col, fallbacks=["Tracking ID","TrackingID","tracking id","tracking_id","Txn ID","TXN ID","Reference","Reference ID"])
     w["txn_id"] = _clean_id(w[wallet_id_col])
 
     backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
@@ -185,7 +161,6 @@ def reconcile_rise_substring(
     b = backend_df.copy()
     r = rise_df.copy()
 
-    backend_id_col = _resolve_col(b, backend_id_col, fallbacks=["Transaction ID","Tracking ID","TrackingID","tracking id","tracking_id","Txn ID","TXN ID","Reference","Reference ID"])
     b["txn_id"] = _clean_id(b[backend_id_col])
     r["_desc"] = r[rise_desc_col].astype(str).str.upper()
 
@@ -241,7 +216,7 @@ def reconcile_rise_substring(
 
 import re  # ensure available for email regex
 
-def _extract_email(text: pd.Series) -> pd.Series:
+def _extract_rise_paid_to_email(text: pd.Series) -> pd.Series:
     s = text.astype(str)
     return s.str.extract(r'([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})', flags=re.IGNORECASE, expand=False).str.lower()
 
@@ -269,7 +244,7 @@ def reconcile_rise_email(
     r = rise_df.copy()
 
     b["match_key"] = b[backend_email_col].astype(str).str.strip().str.lower()
-    r["match_key"] = _extract_email(r[rise_desc_col])
+    r["match_key"] = _extract_rise_paid_to_email(r[rise_desc_col])
 
     backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
     b["ts_utc"] = _to_utc(b[backend_ts_col], backend_tz)
@@ -322,3 +297,19 @@ def reconcile_rise_email(
 
     summary_3h = _build_summary(matched, late_sync, missing_true, report_start, report_end, report_tz)
     return ReconResult(matched, late_sync, missing_true, summary_3h)
+
+
+
+import re
+import pandas as pd
+
+def _extract_rise_paid_to_email(desc: pd.Series) -> pd.Series:
+    s = desc.astype(str)
+
+    pat_between = r"paid\s*to[:\s-]*\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\s*.*?rise\s*id"
+    out = s.str.extract(pat_between, flags=re.IGNORECASE, expand=False)
+
+    pat_any = r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})"
+    out = out.fillna(s.str.extract(pat_any, flags=re.IGNORECASE, expand=False))
+
+    return out.str.lower()
