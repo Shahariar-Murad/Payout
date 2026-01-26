@@ -86,22 +86,21 @@ if run_crypto:
 rise_res = None
 if run_rise:
     rise_res = reconcile_rise_email(
-    backend_df=backend_rise,
-    rise_df=rise,
-    backend_ts_col="Disbursed Time",
-    backend_tz=backend_tz,
-    backend_id_col="Payment method email",
-    backend_amount_col="Disbursement Amount",
-    rise_ts_col="Date",
-    rise_tz=rise_tz,
-    rise_desc_col="Description",
-    rise_amount_col="Amount",
-    report_tz=report_tz,
-    report_start=report_start,
-    report_end=report_end,
-    tolerance_minutes=int(tol),
-)
-
+        backend_df=backend_rise,
+        rise_df=rise,
+        backend_ts_col="Disbursed Time",
+        backend_tz=backend_tz,
+        backend_email_col="Payment method email",
+        backend_amount_col="Disbursement Amount",
+        rise_ts_col="Date",
+        rise_tz=rise_tz,
+        rise_desc_col="Description",
+        rise_amount_col="Amount",
+        report_tz=report_tz,
+        report_start=report_start,
+        report_end=report_end,
+        tolerance_minutes=int(tol),
+    )
 tab1, tab2, tab3 = st.tabs(["Payout reconciliation", "Breakdown", "Report totals"])
 
 with tab1:
@@ -175,144 +174,22 @@ with tab1:
         st.session_state["__sel_times"] = sel_times
     # --- 3-hour summaries (filtered) ---
     if run_rise:
-        st.subheader("Rise 3-hour summary")
-        rs = rise_res.summary_3h.copy()
-        rs["Date"] = rs["bucket_3h"].dt.strftime("%Y-%m-%d")
-        rs["Time Range"] = rs["bucket_3h"].apply(format_range)
-        rs = rs[["Date","Time Range","matched_count","late_sync_count","missing_count","backend_total","wallet_total","diff_total","abs_diff_total"]]
-        sel_times = st.session_state.get("__sel_times")
-        if sel_times:
-            rs = rs[rs["Time Range"].isin(sel_times)]
-        st.markdown('<div class="share-card"><div class="share-title">Rise 3-hour summary</div><div class="share-sub">Filtered view — ready for screenshot.</div></div>', unsafe_allow_html=True)
-        st.dataframe(rs, use_container_width=True, height=260)
-
-        # --- Detail transactions (filtered by selected 3-hour slot) ---
-        def _detail_block(res, label):
-            sel_times = st.session_state.get("__sel_times") or []
-            parts = []
-            if res is None:
-                return
-            if hasattr(res, "matched") and res.matched is not None and not res.matched.empty:
-                parts.append(res.matched.assign(_status="Matched"))
-            if hasattr(res, "late_sync") and res.late_sync is not None and not res.late_sync.empty:
-                parts.append(res.late_sync.assign(_status="Late Sync"))
-            if hasattr(res, "missing_true") and res.missing_true is not None and not res.missing_true.empty:
-                parts.append(res.missing_true.assign(_status="Missing"))
-
-            if not parts:
-                st.info("No detail rows.")
-                return
-
-            det = pd.concat(parts, ignore_index=True)
-            # Build Time Range from the same bucket_3h used in summary
-            if "bucket_3h" in det.columns:
-                det["Time Range"] = det["bucket_3h"].apply(format_range)
-                det["Date"] = det["bucket_3h"].dt.strftime("%Y-%m-%d")
-            elif "ts_report_backend" in det.columns:
-                det["_b"] = det["ts_report_backend"].dt.floor("3H")
-                det["Time Range"] = det["_b"].apply(format_range)
-                det["Date"] = det["_b"].dt.strftime("%Y-%m-%d")
-                det.drop(columns=["_b"], inplace=True, errors="ignore")
-
-            if sel_times and "Time Range" in det.columns:
-                det = det[det["Time Range"].isin(sel_times)]
-
-            st.markdown(f'<div class="share-card"><div class="share-title">{label} transaction details</div><div class="share-sub">This table follows the selected 3-hour slot filter. If no slot is selected, it shows the whole day.</div></div>', unsafe_allow_html=True)
-
-            # Show Missing first for quick action
-            miss = det[det["_status"]=="Missing"].copy()
-            st.write("**Missing (detail)**")
-            st.dataframe(miss, use_container_width=True, height=220)
-            st.download_button(f"Download {label} missing CSV", data=miss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_missing.csv", mime="text/csv")
-
-            with st.expander("Show matched + late sync details"):
-                nonmiss = det[det["_status"]!="Missing"].copy()
-                st.dataframe(nonmiss, use_container_width=True, height=260)
-                st.download_button(f"Download {label} matched+late CSV", data=nonmiss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_matched_late.csv", mime="text/csv")
-
-        _detail_block(rise_res, "Rise")
-
-    if run_crypto:
-        st.subheader("Crypto 3-hour summary")
-        cs = crypto_res.summary_3h.copy()
-        cs["Date"] = cs["bucket_3h"].dt.strftime("%Y-%m-%d")
-        cs["Time Range"] = cs["bucket_3h"].apply(format_range)
-        cs = cs[["Date","Time Range","matched_count","late_sync_count","missing_count","backend_total","wallet_total","diff_total","abs_diff_total"]]
-        sel_times = st.session_state.get("__sel_times")
-        if sel_times:
-            cs = cs[cs["Time Range"].isin(sel_times)]
-        st.markdown('<div class="share-card"><div class="share-title">Crypto 3-hour summary</div><div class="share-sub">Filtered view — ready for screenshot.</div></div>', unsafe_allow_html=True)
-        st.dataframe(cs, use_container_width=True, height=260)
-
-        # --- Detail transactions (filtered by selected 3-hour slot) ---
-        def _detail_block(res, label):
-            sel_times = st.session_state.get("__sel_times") or []
-            parts = []
-            if res is None:
-                return
-            if hasattr(res, "matched") and res.matched is not None and not res.matched.empty:
-                parts.append(res.matched.assign(_status="Matched"))
-            if hasattr(res, "late_sync") and res.late_sync is not None and not res.late_sync.empty:
-                parts.append(res.late_sync.assign(_status="Late Sync"))
-            if hasattr(res, "missing_true") and res.missing_true is not None and not res.missing_true.empty:
-                parts.append(res.missing_true.assign(_status="Missing"))
-
-            if not parts:
-                st.info("No detail rows.")
-                return
-
-            det = pd.concat(parts, ignore_index=True)
-            # Build Time Range from the same bucket_3h used in summary
-            if "bucket_3h" in det.columns:
-                det["Time Range"] = det["bucket_3h"].apply(format_range)
-                det["Date"] = det["bucket_3h"].dt.strftime("%Y-%m-%d")
-            elif "ts_report_backend" in det.columns:
-                det["_b"] = det["ts_report_backend"].dt.floor("3H")
-                det["Time Range"] = det["_b"].apply(format_range)
-                det["Date"] = det["_b"].dt.strftime("%Y-%m-%d")
-                det.drop(columns=["_b"], inplace=True, errors="ignore")
-
-            if sel_times and "Time Range" in det.columns:
-                det = det[det["Time Range"].isin(sel_times)]
-
-            st.markdown(f'<div class="share-card"><div class="share-title">{label} transaction details</div><div class="share-sub">This table follows the selected 3-hour slot filter. If no slot is selected, it shows the whole day.</div></div>', unsafe_allow_html=True)
-
-            # Show Missing first for quick action
-            miss = det[det["_status"]=="Missing"].copy()
-            st.write("**Missing (detail)**")
-            st.dataframe(miss, use_container_width=True, height=220)
-            st.download_button(f"Download {label} missing CSV", data=miss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_missing.csv", mime="text/csv")
-
-            with st.expander("Show matched + late sync details"):
-                nonmiss = det[det["_status"]!="Missing"].copy()
-                st.dataframe(nonmiss, use_container_width=True, height=260)
-                st.download_button(f"Download {label} matched+late CSV", data=nonmiss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_matched_late.csv", mime="text/csv")
-
-        _detail_block(crypto_res, "Crypto")
-with tab2:
-    st.subheader("Breakdown (Matched + Late Sync only)")
-    parts = []
-    if crypto_res is not None:
-        parts += [crypto_res.matched.assign(channel="Crypto"), crypto_res.late_sync.assign(channel="Crypto")]
-    if rise_res is not None:
-        parts += [rise_res.matched.assign(channel="Rise"), rise_res.late_sync.assign(channel="Rise")]
-    rec = pd.concat(parts, ignore_index=True) if len(parts) else pd.DataFrame()
-
-    if rec.empty:
-        st.info("No reconciled rows in the selected range.")
-        st.stop()
-
-    rec["_ptype"] = plan_category(rec.get("Plan", pd.Series([""]*len(rec))))
-    rec["_auto"] = is_automation(rec.get("Internal Status", pd.Series([""]*len(rec))))
-
-    summary = (
-        rec.groupby(["_ptype","channel"])
-        .agg(
-            Count=("txn_id","count"),
-            Total_Sum=("amount_backend","sum"),
-            Automation_Count=("_auto","sum"),
-            Automation_Sum=("amount_backend", lambda s: float(s[rec.loc[s.index,"_auto"]].sum())),
-        )
+    rise_res = reconcile_rise_email(
+        backend_df=backend_rise,
+        rise_df=rise,
+        backend_ts_col="Disbursed Time",
+        backend_tz=backend_tz,
+        backend_email_col="Payment method email",
+        backend_amount_col="Disbursement Amount",
+        rise_ts_col="Date",
+        rise_tz=rise_tz,
+        rise_desc_col="Description",
+        rise_amount_col="Amount",
+        report_tz=report_tz,
+        report_start=report_start,
+        report_end=report_end,
+        tolerance_minutes=int(tol),
+    )
         .reset_index()
         .rename(columns={"_ptype":"Payout Type","channel":"Channel"})
     )
