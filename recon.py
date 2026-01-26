@@ -1,3 +1,9 @@
+from __future__ import annotations
+import re
+from dataclasses import dataclass
+import pandas as pd
+import numpy as np
+
 def _norm_col(name: str) -> str:
     return re.sub(r"\s+", " ", str(name).strip().lower())
 
@@ -18,10 +24,6 @@ def _resolve_col(df: pd.DataFrame, requested: str, fallbacks: list[str] | None =
             return norm_map[key]
     raise KeyError(f"Column not found. Tried: {cand}. Available: {cols}")
 
-
-from dataclasses import dataclass
-import pandas as pd
-import numpy as np
 
 def _to_utc(series: pd.Series, source_tz: str) -> pd.Series:
     s = pd.to_datetime(series, errors="coerce", utc=False)
@@ -299,16 +301,14 @@ def reconcile_rise_email(
     return ReconResult(matched, late_sync, missing_true, summary_3h)
 
 
-
-import re
-import pandas as pd
-
 def _extract_rise_paid_to_email(desc: pd.Series) -> pd.Series:
     s = desc.astype(str)
 
+    # 1) Try: email between "paid to" and "rise id"
     pat_between = r"paid\s*to[:\s-]*\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})\s*.*?rise\s*id"
     out = s.str.extract(pat_between, flags=re.IGNORECASE, expand=False)
 
+    # 2) Fallback: any email in description (if format differs)
     pat_any = r"([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})"
     out = out.fillna(s.str.extract(pat_any, flags=re.IGNORECASE, expand=False))
 
