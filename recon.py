@@ -125,7 +125,9 @@ def reconcile_exact(
     b = backend_df.copy()
     w = wallet_df.copy()
 
+    backend_id_col = _resolve_col(b, backend_id_col, fallbacks=["Transaction ID","Tracking ID","TrackingID","tracking id","tracking_id","Txn ID","TXN ID","Reference","Reference ID"])
     b["txn_id"] = _clean_id(b[backend_id_col])
+    wallet_id_col = _resolve_col(w, wallet_id_col, fallbacks=["Tracking ID","TrackingID","tracking id","tracking_id","Txn ID","TXN ID","Reference","Reference ID"])
     w["txn_id"] = _clean_id(w[wallet_id_col])
 
     backend_ts_col = _resolve_col(b, backend_ts_col, fallbacks=["Created","Created At","CreatedAt","created","created at"])
@@ -183,6 +185,7 @@ def reconcile_rise_substring(
     b = backend_df.copy()
     r = rise_df.copy()
 
+    backend_id_col = _resolve_col(b, backend_id_col, fallbacks=["Transaction ID","Tracking ID","TrackingID","tracking id","tracking_id","Txn ID","TXN ID","Reference","Reference ID"])
     b["txn_id"] = _clean_id(b[backend_id_col])
     r["_desc"] = r[rise_desc_col].astype(str).str.upper()
 
