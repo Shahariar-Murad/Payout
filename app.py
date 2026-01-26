@@ -4,7 +4,7 @@ import streamlit as st
 from datetime import datetime, date, time, timedelta
 import plotly.express as px
 
-from recon import reconcile_exact, reconcile_rise_substring, reconcile_rise_email, plan_category, is_automation
+from recon import reconcile_exact, reconcile_rise_substring, plan_category, is_automation
 
 st.set_page_config(page_title="Payout Recon Platform", layout="wide")
 st.title("Payout Reconciliation Platform")
@@ -85,12 +85,12 @@ if run_crypto:
 
 rise_res = None
 if run_rise:
-    rise_res = reconcile_rise_email(
+    rise_res = reconcile_rise_substring(
     backend_df=backend_rise,
     rise_df=rise,
     backend_ts_col="Disbursed Time",
     backend_tz=backend_tz,
-    backend_email_col="Payment method Email",
+    backend_id_col="Payment method ID",
     backend_amount_col="Disbursement Amount",
     rise_ts_col="Date",
     rise_tz=rise_tz,
