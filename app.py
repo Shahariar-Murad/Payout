@@ -378,7 +378,9 @@ with tab3:
         if ts_col not in df.columns or amount_col not in df.columns:
             return 0.0
         t = _parse_local(df, ts_col, src_tz)
-        mask = (t >= report_start) & (t <= report_end + timedelta(days=1) - timedelta(microseconds=1))
+        # `report_end` is already the **exclusive** end boundary (start of the next day) in report timezone.
+        # Using +1 day here would unintentionally include an extra day.
+        mask = (t >= report_start) & (t < report_end)
         amt = pd.to_numeric(df.loc[mask, amount_col], errors="coerce").fillna(0.0)
         return float(np.nansum(np.abs(amt)))
 
