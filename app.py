@@ -151,24 +151,25 @@ with tab1:
     c.metric("True missing (all)", true_missing)
 
     st.subheader("Missing transaction details")
-    st.caption("These are Backend payouts that were not found in the selected wallet report (after applying the 15-minute tolerance).")
-    m1, m2 = st.columns(2)
-    with m1:
-        st.markdown("**Crypto missing (Backend present, Wallet missing)**")
-        cm = crypto_res.missing_true.copy() if crypto_res is not None else pd.DataFrame()
-        if cm.empty:
-            st.write("No missing rows ✅")
-        else:
-            show_cols = [c for c in ["Disbursed Time","Transaction ID","Disbursement Amount","Payment Method","Plan","Internal Status","Customer Email","Login","Id"] if c in cm.columns]
-            st.dataframe(cm[show_cols + [c for c in ["txn_id","ts_report_backend","amount_backend"] if c in cm.columns]].head(200), use_container_width=True, height=220)
-    with m2:
-        st.markdown("**Rise missing (Backend present, Wallet missing)**")
-        rm = rise_res.missing_true.copy() if rise_res is not None else pd.DataFrame()
-        if rm.empty:
-            st.write("No missing rows ✅")
-        else:
-            show_cols = [c for c in ["Disbursed Time","Payment method ID","Disbursement Amount","Payment Method","Plan","Internal Status","Customer Email","Login","Id"] if c in rm.columns]
-            st.dataframe(rm[show_cols + [c for c in ["txn_id","ts_report_backend","amount_backend"] if c in rm.columns]].head(200), use_container_width=True, height=220)
+    with st.expander("Show missing details", expanded=False):
+        st.caption("These are Backend payouts that were not found in the selected wallet report (after applying the 15-minute tolerance).")
+        m1, m2 = st.columns(2)
+        with m1:
+            st.markdown("**Crypto missing (Backend present, Wallet missing)**")
+            cm = crypto_res.missing_true.copy() if crypto_res is not None else pd.DataFrame()
+            if cm.empty:
+                st.write("No missing rows ✅")
+            else:
+                show_cols = [c for c in ["Disbursed Time","Transaction ID","Disbursement Amount","Payment Method","Plan","Internal Status","Customer Email","Login","Id"] if c in cm.columns]
+                st.dataframe(cm[show_cols + [c for c in ["txn_id","ts_report_backend","amount_backend"] if c in cm.columns]].head(200), use_container_width=True, height=220)
+        with m2:
+            st.markdown("**Rise missing (Backend present, Wallet missing)**")
+            rm = rise_res.missing_true.copy() if rise_res is not None else pd.DataFrame()
+            if rm.empty:
+                st.write("No missing rows ✅")
+            else:
+                show_cols = [c for c in ["Disbursed Time","Payment method ID","Disbursement Amount","Payment Method","Plan","Internal Status","Customer Email","Login","Id"] if c in rm.columns]
+                st.dataframe(rm[show_cols + [c for c in ["txn_id","ts_report_backend","amount_backend"] if c in rm.columns]].head(200), use_container_width=True, height=220)
 
 
     st.subheader("3-hour payout counts (backend) — Rise vs Crypto")
@@ -255,11 +256,11 @@ with tab1:
 
             st.markdown(f'<div class="share-card"><div class="share-title">{label} transaction details</div><div class="share-sub">This table follows the selected 3-hour slot filter. If no slot is selected, it shows the whole day.</div></div>', unsafe_allow_html=True)
 
-            # Show Missing first for quick action
+            # Missing (detail)
             miss = det[det["_status"]=="Missing"].copy()
-            st.write("**Missing (detail)**")
-            st.dataframe(miss, use_container_width=True, height=220)
-            st.download_button(f"Download {label} missing CSV", data=miss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_missing.csv", mime="text/csv")
+            with st.expander("Show missing details", expanded=False):
+                st.dataframe(miss, use_container_width=True, height=220)
+                st.download_button(f"Download {label} missing CSV", data=miss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_missing.csv", mime="text/csv")
 
             with st.expander("Show matched + late sync details"):
                 nonmiss = det[det["_status"]!="Missing"].copy()
