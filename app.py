@@ -314,11 +314,20 @@ with tab1:
 
             st.markdown(f'<div class="share-card"><div class="share-title">{label} transaction details</div><div class="share-sub">This table follows the selected 3-hour slot filter. If no slot is selected, it shows the whole day.</div></div>', unsafe_allow_html=True)
 
-            # Show Missing first for quick action
+            # Missing details (hidden by default)
             miss = det[det["_status"]=="Missing"].copy()
-            st.write("**Missing (detail)**")
-            st.dataframe(miss, use_container_width=True, height=220)
-            st.download_button(f"Download {label} missing CSV", data=miss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_missing.csv", mime="text/csv")
+            with st.expander("Show missing details", expanded=False):
+                if len(miss) == 0:
+                    st.success("No missing rows ✅")
+                else:
+                    st.markdown("**Missing (detail)**")
+                    st.dataframe(miss, use_container_width=True, height=220)
+                    st.download_button(
+                        f"Download {label} missing CSV",
+                        data=miss.to_csv(index=False).encode("utf-8"),
+                        file_name=f"{label.lower()}_missing.csv",
+                        mime="text/csv",
+                    )
 
             with st.expander("Show matched + late sync details"):
                 nonmiss = det[det["_status"]!="Missing"].copy()
