@@ -33,6 +33,22 @@ with st.sidebar:
     dr = st.date_input("Select start and end date", value=(date.today() - timedelta(days=1), date.today()))
     report_tz = st.text_input("Report timezone", value="Asia/Dhaka")
 
+    # Team-friendly presets: often they reconcile from previous day evening to today morning,
+    # then review 3-hour slots within the same day.
+    st.subheader("Quick time window (optional)")
+    st.caption("Preset windows use the END date above as 'today'.")
+    quick_window = st.selectbox(
+        "Choose a preset window",
+        [
+            "Custom (use full selected date range)",
+            "Shift: Prev day 06:00 PM → Today 09:00 AM",
+            "Today 09:00 AM → 12:00 PM",
+            "Today 12:00 PM → 03:00 PM",
+            "Today 03:00 PM → 06:00 PM",
+        ],
+        index=0,
+    )
+
     st.header("Source timezones (naive)")
     backend_tz = st.text_input("Backend timezone", value="Etc/GMT-2")  # UTC+2
     crypto_tz = st.text_input("Crypto report timezone", value="UTC")   # data is GMT+00
@@ -51,8 +67,27 @@ if (not run_crypto) and (not run_rise):
     st.stop()
 
 start_date, end_date = dr
-report_start = pd.Timestamp(datetime.combine(start_date, time(0,0)), tz=report_tz)
-report_end = pd.Timestamp(datetime.combine(end_date + timedelta(days=1), time(0,0)), tz=report_tz)
+
+# Default: whole selected date range (inclusive of end_date)
+report_start = pd.Timestamp(datetime.combine(start_date, time(0, 0)), tz=report_tz)
+report_end = pd.Timestamp(datetime.combine(end_date + timedelta(days=1), time(0, 0)), tz=report_tz)
+
+# Preset windows (all in report_tz, anchored to END date as "today")
+if quick_window != "Custom (use full selected date range)":
+    today = end_date
+    prev = today - timedelta(days=1)
+    if quick_window == "Shift: Prev day 06:00 PM → Today 09:00 AM":
+        report_start = pd.Timestamp(datetime.combine(prev, time(18, 0)), tz=report_tz)
+        report_end = pd.Timestamp(datetime.combine(today, time(9, 0)), tz=report_tz)
+    elif quick_window == "Today 09:00 AM → 12:00 PM":
+        report_start = pd.Timestamp(datetime.combine(today, time(9, 0)), tz=report_tz)
+        report_end = pd.Timestamp(datetime.combine(today, time(12, 0)), tz=report_tz)
+    elif quick_window == "Today 12:00 PM → 03:00 PM":
+        report_start = pd.Timestamp(datetime.combine(today, time(12, 0)), tz=report_tz)
+        report_end = pd.Timestamp(datetime.combine(today, time(15, 0)), tz=report_tz)
+    elif quick_window == "Today 03:00 PM → 06:00 PM":
+        report_start = pd.Timestamp(datetime.combine(today, time(15, 0)), tz=report_tz)
+        report_end = pd.Timestamp(datetime.combine(today, time(18, 0)), tz=report_tz)
 
 backend = pd.read_csv(backend_file)
 crypto = pd.read_csv(crypto_file) if run_crypto else None
