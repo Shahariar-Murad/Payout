@@ -29,9 +29,22 @@ with st.sidebar:
     crypto_file = st.file_uploader("Crypto wallet report CSV", type=["csv"])
     rise_file = st.file_uploader("Rise report CSV", type=["csv"])
 
-    st.header("Report date range (GMT+6)")
-    dr = st.date_input("Select start and end date", value=(date.today() - timedelta(days=1), date.today()))
-    report_tz = st.text_input("Report timezone", value="Asia/Dhaka")
+    # Report timezone controls *all* filtering + display (date range, quick windows, charts/tables).
+    # Provide common options + a custom override.
+    tz_choices = {
+        "UTC+6 (Asia/Dhaka)": "Asia/Dhaka",
+        "UTC+2 (Etc/GMT-2)": "Etc/GMT-2",  # NOTE: Etc/GMT-2 == UTC+2 (POSIX sign is reversed)
+        "UTC (UTC)": "UTC",
+        "Custom…": None,
+    }
+    tz_label = st.selectbox("Report timezone", list(tz_choices.keys()), index=0)
+    report_tz = tz_choices[tz_label] or st.text_input("Custom report timezone (IANA)", value="Asia/Dhaka")
+
+    st.header(f"Report date range ({report_tz})")
+    dr = st.date_input(
+        "Select start and end date",
+        value=(date.today() - timedelta(days=1), date.today()),
+    )
 
     # Team-friendly presets: often they reconcile from previous day evening to today morning,
     # then review 3-hour slots within the same day.
@@ -143,11 +156,20 @@ tab1, tab2, tab3 = st.tabs(["Payout reconciliation", "Breakdown", "Disbursement 
 with tab1:
     st.subheader("Overview")
     a,b,c = st.columns(3)
-    crypto_matched = len(crypto_res.matched) if crypto_res is not None else 0
-    rise_matched = len(rise_res.matched) if rise_res is not None else 0
+    # IMPORTANT: These headline counts should align with the Breakdown tab,
+    # which is "Matched + Late Sync" and is bucketed by backend time.
+    if crypto_res is not None:
+        crypto_matched = len(pd.concat([crypto_res.matched, crypto_res.late_sync], ignore_index=True))
+    else:
+        crypto_matched = 0
+
+    if rise_res is not None:
+        rise_matched = len(pd.concat([rise_res.matched, rise_res.late_sync], ignore_index=True))
+    else:
+        rise_matched = 0
     true_missing = (len(crypto_res.missing_true) if crypto_res is not None else 0) + (len(rise_res.missing_true) if rise_res is not None else 0)
-    a.metric("Crypto matched", crypto_matched)
-    b.metric("Rise matched", rise_matched)
+    a.metric("Crypto matched + late sync", crypto_matched)
+    b.metric("Rise matched + late sync", rise_matched)
     c.metric("True missing (all)", true_missing)
 
     st.subheader("Missing transaction details")
@@ -510,3 +532,40 @@ with tab3:
     # Simple stacked bar for quick comparison
     chart_df = totals_tbl.set_index("Channel")[["Payout", "Others disbursed"]]
     st.bar_chart(chart_df)
+
+
+# --- Wallet payout (Tracking ID present) but NOT found in backend ---
+# This helps detect wrong/unknown payouts disbursed from wallet
+with st.expander("Show wallet payout not found in backend", expanded=False):
+    try:
+        # Wallet payouts are rows with Tracking ID present
+        _cw = crypto.copy()
+        _cw["_tracking_id_norm"] = _cw["Tracking ID"].astype(str).str.strip().str.upper()
+        _cw = _cw[_cw["_tracking_id_norm"].notna() & (_cw["_tracking_id_norm"] != "")]
+
+        # Convert wallet timestamp to report timezone and filter to the same window
+        _cw["_ts_report"] = pd.to_datetime(_cw["Created"], errors="coerce", utc=True).dt.tz_convert(report_tz)
+        _cw = _cw[(_cw["_ts_report"] >= report_start) & (_cw["_ts_report"] < report_end)].copy()
+
+        # Backend payouts in window (already used for crypto reconciliation)
+        _b = backend_crypto.copy()
+        _b["_txn_id_norm"] = _b["Transaction ID"].astype(str).str.strip().str.upper()
+        _b = _b[_b["_txn_id_norm"].notna() & (_b["_txn_id_norm"] != "")]
+        _backend_ids = set(_b["_txn_id_norm"].unique().tolist())
+
+        wallet_payout_not_in_backend = _cw[~_cw["_tracking_id_norm"].isin(_backend_ids)].copy()
+
+        st.write("These are wallet transactions with Tracking ID (payout) but no matching Transaction ID found in backend for the selected window.")
+        st.metric("Count", int(len(wallet_payout_not_in_backend)))
+        st.metric("Total amount", f"{pd.to_numeric(wallet_payout_not_in_backend['Amount'], errors='coerce').abs().sum():,.2f}")
+
+        st.dataframe(wallet_payout_not_in_backend, use_container_width=True, height=260)
+        st.download_button(
+            "Download wallet payout not in backend (CSV)",
+            data=wallet_payout_not_in_backend.to_csv(index=False).encode("utf-8"),
+            file_name="crypto_wallet_payout_not_in_backend.csv",
+            mime="text/csv",
+        )
+    except Exception as e:
+        st.error(f"Could not build wallet→backend mismatch table: {e}")
+
