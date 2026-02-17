@@ -21,7 +21,14 @@ st.markdown("""
 
 
 def format_range(ts):
-    return f"{ts.strftime('%I:%M %p')} - {(ts + pd.Timedelta(hours=3)).strftime('%I:%M %p')}"
+    """Display-friendly 3-hour label.
+
+    Internally we use half-open time windows [start, end) where end is +3 hours.
+    For presets that start at :01, users expect the label to show the end at :00.
+    So we display end as (start + 3h - 1 minute).
+    """
+    end_display = ts + pd.Timedelta(hours=3) - pd.Timedelta(minutes=1)
+    return f"{ts.strftime('%I:%M %p')} - {end_display.strftime('%I:%M %p')}"
 
 with st.sidebar:
     st.header("Upload 3 files")
@@ -54,10 +61,10 @@ with st.sidebar:
         "Choose a preset window",
         [
             "Custom (use full selected date range)",
-            "Shift: Prev day 06:01 PM → Today 09:00:59 AM",
-            "Today 09:01 AM → 12:00:59 PM",
-            "Today 12:01 PM → 03:00:59 PM",
-            "Today 03:01 PM → 06:00:59 PM",
+			"Shift: Prev day 06:01 PM → Today 09:00 AM",
+			"Today 09:01 AM → 12:00 PM",
+			"Today 12:01 PM → 03:00 PM",
+			"Today 03:01 PM → 06:00 PM",
         ],
         index=0,
     )
@@ -91,16 +98,16 @@ if quick_window != "Custom (use full selected date range)":
     prev = today - timedelta(days=1)
     # NOTE: recon.py uses HALF-OPEN filtering [start, end) (end is exclusive).
     # So to represent an inclusive end like 12:00:59, we use end=12:01:00.
-    if quick_window == "Shift: Prev day 06:01 PM → Today 09:00:59 AM":
+    if quick_window == "Shift: Prev day 06:01 PM → Today 09:00 AM":
         report_start = pd.Timestamp(datetime.combine(prev, time(18, 1)), tz=report_tz)
         report_end = pd.Timestamp(datetime.combine(today, time(9, 1)), tz=report_tz)
-    elif quick_window == "Today 09:01 AM → 12:00:59 PM":
+    elif quick_window == "Today 09:01 AM → 12:00 PM":
         report_start = pd.Timestamp(datetime.combine(today, time(9, 1)), tz=report_tz)
         report_end = pd.Timestamp(datetime.combine(today, time(12, 1)), tz=report_tz)
-    elif quick_window == "Today 12:01 PM → 03:00:59 PM":
+    elif quick_window == "Today 12:01 PM → 03:00 PM":
         report_start = pd.Timestamp(datetime.combine(today, time(12, 1)), tz=report_tz)
         report_end = pd.Timestamp(datetime.combine(today, time(15, 1)), tz=report_tz)
-    elif quick_window == "Today 03:01 PM → 06:00:59 PM":
+    elif quick_window == "Today 03:01 PM → 06:00 PM":
         report_start = pd.Timestamp(datetime.combine(today, time(15, 1)), tz=report_tz)
         report_end = pd.Timestamp(datetime.combine(today, time(18, 1)), tz=report_tz)
 
