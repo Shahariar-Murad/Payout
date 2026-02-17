@@ -89,18 +89,21 @@ report_end = pd.Timestamp(datetime.combine(end_date + timedelta(days=1), time(0,
 if quick_window != "Custom (use full selected date range)":
     today = end_date
     prev = today - timedelta(days=1)
-    if quick_window == "Shift: Prev day 06:00 PM → Today 09:00 AM":
-        report_start = pd.Timestamp(datetime.combine(prev, time(18, 0)), tz=report_tz)
-        report_end = pd.Timestamp(datetime.combine(today, time(9, 0)), tz=report_tz)
-    elif quick_window == "Today 09:00 AM → 12:00 PM":
-        report_start = pd.Timestamp(datetime.combine(today, time(9, 0)), tz=report_tz)
-        report_end = pd.Timestamp(datetime.combine(today, time(12, 0)), tz=report_tz)
-    elif quick_window == "Today 12:00 PM → 03:00 PM":
-        report_start = pd.Timestamp(datetime.combine(today, time(12, 0)), tz=report_tz)
-        report_end = pd.Timestamp(datetime.combine(today, time(15, 0)), tz=report_tz)
-    elif quick_window == "Today 03:00 PM → 06:00 PM":
-        report_start = pd.Timestamp(datetime.combine(today, time(15, 0)), tz=report_tz)
-        report_end = pd.Timestamp(datetime.combine(today, time(18, 0)), tz=report_tz)
+if quick_window == "Shift: Prev day 06:00 PM → Today 09:00 AM":
+    report_start = pd.Timestamp(datetime.combine(prev, time(18, 1)), tz=report_tz)
+    report_end = pd.Timestamp(datetime.combine(today, time(9, 0)), tz=report_tz)
+
+elif quick_window == "Today 09:00 AM → 12:00 PM":
+    report_start = pd.Timestamp(datetime.combine(today, time(9, 1)), tz=report_tz)
+    report_end = pd.Timestamp(datetime.combine(today, time(12, 0)), tz=report_tz)
+
+elif quick_window == "Today 12:00 PM → 03:00 PM":
+    report_start = pd.Timestamp(datetime.combine(today, time(12, 1)), tz=report_tz)
+    report_end = pd.Timestamp(datetime.combine(today, time(15, 0)), tz=report_tz)
+
+elif quick_window == "Today 03:00 PM → 06:00 PM":
+    report_start = pd.Timestamp(datetime.combine(today, time(15, 1)), tz=report_tz)
+    report_end = pd.Timestamp(datetime.combine(today, time(18, 0)), tz=report_tz)
 
 backend = pd.read_csv(backend_file)
 crypto = pd.read_csv(crypto_file) if run_crypto else None
