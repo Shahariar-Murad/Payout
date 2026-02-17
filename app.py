@@ -5,7 +5,13 @@ from datetime import datetime, date, time, timedelta
 import plotly.express as px
 import numpy as np
 
-from recon import reconcile_exact, reconcile_rise_substring, plan_category, is_automation
+from recon import (
+    reconcile_exact,
+    reconcile_rise_substring,
+    plan_category,
+    is_automation,
+    rise_wallet_payout_not_in_backend,
+)
 
 st.set_page_config(page_title="Payout Recon Platform", layout="wide")
 st.title("Payout Reconciliation Platform")
@@ -54,10 +60,10 @@ with st.sidebar:
         "Choose a preset window",
         [
             "Custom (use full selected date range)",
-            "Shift: Prev day 06:00 PM → Today 09:00 AM",
-            "Today 09:00 AM → 12:00 PM",
-            "Today 12:00 PM → 03:00 PM",
-            "Today 03:00 PM → 06:00 PM",
+            "Shift: Prev day 06:01 PM → Today 09:00 AM",
+            "Today 09:01 AM → 12:00 PM",
+            "Today 12:01 PM → 03:00 PM",
+            "Today 03:01 PM → 06:00 PM",
         ],
         index=0,
     )
@@ -89,21 +95,18 @@ report_end = pd.Timestamp(datetime.combine(end_date + timedelta(days=1), time(0,
 if quick_window != "Custom (use full selected date range)":
     today = end_date
     prev = today - timedelta(days=1)
-if quick_window == "Shift: Prev day 06:00 PM → Today 09:00 AM":
-    report_start = pd.Timestamp(datetime.combine(prev, time(18, 1)), tz=report_tz)
-    report_end = pd.Timestamp(datetime.combine(today, time(9, 0)), tz=report_tz)
-
-elif quick_window == "Today 09:00 AM → 12:00 PM":
-    report_start = pd.Timestamp(datetime.combine(today, time(9, 1)), tz=report_tz)
-    report_end = pd.Timestamp(datetime.combine(today, time(12, 0)), tz=report_tz)
-
-elif quick_window == "Today 12:00 PM → 03:00 PM":
-    report_start = pd.Timestamp(datetime.combine(today, time(12, 1)), tz=report_tz)
-    report_end = pd.Timestamp(datetime.combine(today, time(15, 0)), tz=report_tz)
-
-elif quick_window == "Today 03:00 PM → 06:00 PM":
-    report_start = pd.Timestamp(datetime.combine(today, time(15, 1)), tz=report_tz)
-    report_end = pd.Timestamp(datetime.combine(today, time(18, 0)), tz=report_tz)
+    if quick_window == "Shift: Prev day 06:01 PM → Today 09:00 AM":
+        report_start = pd.Timestamp(datetime.combine(prev, time(18, 1)), tz=report_tz)
+        report_end = pd.Timestamp(datetime.combine(today, time(9, 0)), tz=report_tz)
+    elif quick_window == "Today 09:01 AM → 12:00 PM":
+        report_start = pd.Timestamp(datetime.combine(today, time(9, 1)), tz=report_tz)
+        report_end = pd.Timestamp(datetime.combine(today, time(12, 0)), tz=report_tz)
+    elif quick_window == "Today 12:01 PM → 03:00 PM":
+        report_start = pd.Timestamp(datetime.combine(today, time(12, 1)), tz=report_tz)
+        report_end = pd.Timestamp(datetime.combine(today, time(15, 0)), tz=report_tz)
+    elif quick_window == "Today 03:01 PM → 06:00 PM":
+        report_start = pd.Timestamp(datetime.combine(today, time(15, 1)), tz=report_tz)
+        report_end = pd.Timestamp(datetime.combine(today, time(18, 0)), tz=report_tz)
 
 backend = pd.read_csv(backend_file)
 crypto = pd.read_csv(crypto_file) if run_crypto else None
@@ -174,6 +177,9 @@ with tab1:
     a.metric("Crypto matched + late sync", crypto_matched)
     b.metric("Rise matched + late sync", rise_matched)
     c.metric("True missing (all)", true_missing)
+
+    # Wallet→Backend mismatch (payout present in wallet but missing in backend)
+    w1, w2 = st.columns(2)
 
     st.subheader("Missing transaction details")
     with st.expander("Show missing details", expanded=False):
@@ -293,6 +299,48 @@ with tab1:
                 st.download_button(f"Download {label} matched+late CSV", data=nonmiss.to_csv(index=False).encode("utf-8"), file_name=f"{label.lower()}_matched_late.csv", mime="text/csv")
 
         _detail_block(rise_res, "Rise")
+
+        # Rise: wallet-side payout rows that don't exist in backend (bidirectional check)
+        with st.expander("Show Rise wallet payout not found in backend", expanded=False):
+            try:
+                rise_df_local = rise  # alias for clarity
+                if (rise_file is not None) and (rise_df_local is not None) and (len(rise_df_local) > 0) and (backend_rise is not None) and (len(backend_rise) > 0):
+                    rise_wallet_not_in_backend = rise_wallet_payout_not_in_backend(
+                        backend_df=backend_rise,
+                        rise_df=rise_df_local,
+                        backend_ts_col="Disbursed Time",
+                        backend_tz=backend_tz,
+                        backend_email_col="Payment method Email",
+                        rise_ts_col=RISE_TS_COL,
+                        rise_tz=rise_tz,
+                        rise_amt_col=RISE_AMT_COL,
+                        rise_desc_col=RISE_DESC_COL,
+                        report_tz=report_tz,
+                        report_start=report_start,
+                        report_end=report_end,
+                        tolerance_minutes=int(tol),
+                        amount_tolerance_usd=0.10,
+                    )
+
+                    st.write(
+                        "These are Rise wallet rows that look like payouts (email found in Description) but no matching backend payout was found "
+                        "for the selected window (email + amount within $0.10 + within time tolerance)."
+                    )
+                    st.metric("Count", int(len(rise_wallet_not_in_backend)))
+                    amt_series = pd.to_numeric(rise_wallet_not_in_backend.get(RISE_AMT_COL, pd.Series(dtype=float)), errors="coerce")
+                    st.metric("Total amount", f"{float(np.nansum(np.abs(amt_series))):,.2f}")
+
+                    st.dataframe(rise_wallet_not_in_backend, use_container_width=True, height=260)
+                    st.download_button(
+                        "Download Rise wallet payout not in backend (CSV)",
+                        data=rise_wallet_not_in_backend.to_csv(index=False).encode("utf-8"),
+                        file_name="rise_wallet_payout_not_in_backend.csv",
+                        mime="text/csv",
+                    )
+                else:
+                    st.info("Upload both Backend + Rise report to view this table.")
+            except Exception as e:
+                st.error(f"Could not build Rise wallet→backend mismatch table: {e}")
 
     if run_crypto:
         st.subheader("Crypto 3-hour summary")
@@ -571,4 +619,6 @@ with st.expander("Show wallet payout not found in backend", expanded=False):
         )
     except Exception as e:
         st.error(f"Could not build wallet→backend mismatch table: {e}")
+
+
 
